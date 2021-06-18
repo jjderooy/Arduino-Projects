@@ -25,13 +25,7 @@ class Piece {
     byte X;
     byte Y;
     bool unmoved;
-
     
-
-    void move(byte new_x, byte new_y){
-        this->X = new_x;
-        this->Y = new_y;
-    }
 };
 
 // We wrap the array in a struct so we can declare, then initialize later
@@ -45,7 +39,7 @@ class Board {
         this->pieces = {
 
             // Black
-            Piece(0, 1, Pawn, Black),
+            Piece(0, 4, Pawn, Black),
             Piece(1, 1, Pawn, Black),
             Piece(2, 1, Pawn, Black),
             Piece(3, 1, Pawn, Black),
@@ -116,7 +110,8 @@ class Board {
             if((i + 1) % 8 == 0)
                 Serial.print("\n");
         }
-        
+
+        Serial.println();
     }
 
     // Returns true if the move is valid. Does not make the move.
@@ -125,17 +120,53 @@ class Board {
     bool valid_move(byte curr_x, byte curr_y, byte new_x, byte new_y){
         
         Piece *p = &pieces.pieces[0];
-
-        // Point p at the piece that will be moved.
-        while(p->X != curr_x && p->X != curr_y) // This is uhh a little dangerous
-            p++;
         
+        // Point p at the piece that will be moved.
+        while(p->X != curr_x || p->Y != curr_y){ // This is uhh a little dangerous
+            p++;
+        }
+        
+
         // Each Piece has a set of possible moves.
         switch(p->name){
             case(Pawn):
+                
                 break;
                 
             case(Rook):
+                Serial.println("Entered rook case");
+                // Illegal diagonal move
+                if(curr_x != new_x && curr_y != new_y)
+                    return false;
+
+                Serial.println("Not diagonal");
+
+                // At this point the piece is moving horizontally or vertically
+
+                // increment is +1 if we are moving positively, -1 if negative
+                int increment = -1 + 2*(new_x > curr_x || new_y > curr_y);
+                Serial.print("Increment = ");
+                Serial.println(increment);
+
+                // Any pieces in the way moving horizontally?
+                for(int i = curr_x; i != new_x; i += increment){
+                    if(occupied(i, curr_y))
+                        return false;
+                }
+                Serial.println("No pieces horizontally");
+
+                // Any pieces in the way moving vertically? 
+                for(int i = curr_y +increment; i != new_y; i += increment){ // TODO need to fix this so only one for loop is run depending on horizontal or vertical movement.
+                    Serial.print("curr_xi = ");
+                    Serial.print(curr_x);
+                    Serial.println(i);
+                    if(occupied(curr_x, i))
+                        return false;
+                }
+                Serial.println("No pieces vertically");
+                Serial.println("VALID MOVE");
+                
+                return true;
                 break;
 
             case(Knight):
@@ -151,6 +182,15 @@ class Board {
                 break;
         }
     }
+
+     void move(byte curr_x, byte curr_y, byte new_x, byte new_y){
+        Piece *p = &pieces.pieces[0];
+
+        while(p->X != curr_x || p->Y != curr_y) // This is uhh a little dangerous
+            p++;
+        p->X = new_x;
+        p->Y = new_y;
+    }
     
     // Use move, to check every single move to the king of color c.
     // If any move is valid, this returns true
@@ -158,7 +198,12 @@ class Board {
         return false;
     }
 
+    // Returns true if a piece of any color occupies the specified square.
     bool occupied(byte x, byte y){
+        for(int i = 0; i < 32; i++){
+            if(this->pieces.pieces[i].X == x && this->pieces.pieces[i].Y == y)
+                return true;
+        }
         return false;
     }
 };
@@ -171,6 +216,12 @@ void setup(){
 
 void loop(){
     delay(1000); // Allow for serial comms to begin.
+    game_board.print_board();
+
+    if(game_board.valid_move(0, 0, 0, 2)){
+      game_board.move(0, 0, 0, 2);
+    }
+
     game_board.print_board();
     while(true){}
 }
