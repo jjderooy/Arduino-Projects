@@ -53,8 +53,8 @@ class Board {
             Piece(6, 0, Knight, Black),
             Piece(2, 0, Bishop, Black),
             Piece(5, 0, Bishop, Black),
-            Piece(4, 0, King, Black),
-            Piece(3, 0, Queen, Black),
+            Piece(3, 0, King, Black),
+            Piece(4, 0, Queen, Black),
 
             // White
             Piece(0, 6, Pawn, White),
@@ -71,8 +71,8 @@ class Board {
             Piece(6, 7, Knight, White),
             Piece(2, 7, Bishop, White),
             Piece(5, 7, Bishop, White),
-            Piece(4, 7, King, White),
-            Piece(3, 7, Queen, White),
+            Piece(3, 7, King, White),
+            Piece(4, 7, Queen, White),
         };
     }
 
@@ -101,6 +101,7 @@ class Board {
         
         // Spooky formatting so board prints in correct orientation
         byte row = 0;
+        Serial.println();
         for (byte i = 0; i < 64; i++) {
 
             // Every 8th char add a new line
@@ -109,10 +110,14 @@ class Board {
                 row++;
             }
 
+            if(i % 8 == 0){
+                Serial.print(String(8 - row) + "   ");
+            }
+
             Serial.print(' ');
             Serial.print(board_string[64 - (row*8) + (i%8)]);
         }
-        Serial.println("\n\n\n\n");
+        Serial.println("\n\n 0 1 2 3 4 5 6 7\n\n\n\n");
     }
 
     // Returns true if the move is valid. Does not make the move.
@@ -123,7 +128,7 @@ class Board {
         Piece *p = occupied(curr_x, curr_y);
         
         // Get our increments for movment. Used by no_collisions()
-        // Increments are + or -1 depending on direction
+        // Increments will be normalized to + or -1 depending on direction
         // If no movement occurs, inc = 0
         int inc_x = new_x - curr_x;
         int inc_y = new_y - curr_y;
@@ -139,29 +144,55 @@ class Board {
 
         // Normalize increments to magnitude of 1
         // if inc is 0, set inc to 0 (avoiding div by 0)
+        // Woo ternary operators
         inc_x = inc_x ? inc_x/abs(inc_x) : 0;
         inc_y = inc_y ? inc_y/abs(inc_y) : 0;
 
-        Serial.println("inc_x = " + String(inc_x));
-        Serial.println("inc_y = " + String(inc_y));
-
         // Not moving is invalid
-        if(!(inc_x * inc_y))
+        if(!inc_x && !inc_y){
+            Serial.println("Piece must move at least 1 square");
             return false;
+        }
+
+        bool no_col = no_collisions(curr_x, curr_y, new_x, new_y, inc_x, inc_y);
 
         // Each Piece has a set of possible moves.
         switch(p->name){
             case(Pawn):
+                Serial.println("Entered pawn case");
                 
-                break;
+                // Moving one square forward. Recall Black = 1, White = -1
+                if(inc_x == 0 && new_y - curr_y == p->color && no_col){
+                    Serial.println("One square forward movement");
+                    break;
+                }
+
+                // Pawn can move 2 squares forward if:
+                    // Black && curr_y = 1
+                    // White && curr_y = 6
+                if(inc_x == 0 && (new_y - curr_y) == 2*p->color && 
+                   curr_y == (p->color == Black ? 1 : 6) && no_col){
+                    Serial.println("Two square forward movement");
+                    break;
+                }
+
+                // Pawn can move diagonal if:
+                    // Diagonal square is occupied
+                    // (Next section will catch the color)
+                if(abs(inc_x) == 1 && inc_y == p->color &&
+                   occupied(new_x, new_y)){
+                    Serial.println("Diagonal take movement");
+                    break;
+                }
+
+                Serial.println("Invalid pawn movement");
+                return false;
                 
             case(Rook):
                 Serial.println("Entered rook case");
 
                 // If x and y inc are both non zero, it's invalid (diagonal)
-                if((inc_x && inc_y) || 
-                   !no_collisions(curr_x, curr_y, new_x, new_y, inc_x, inc_y)) {
-
+                if((inc_x && inc_y) || !no_col) {
                     Serial.println("Invalid rook movement");
                     return false;
                 }
@@ -180,9 +211,7 @@ class Board {
                 Serial.println("Entered bishop case");
 
                 // Invalid if x and y inc are diff (not diagonal)
-                if(abs(inc_x) - abs(inc_y) || 
-                   !no_collisions(curr_x, curr_y, new_x, new_y, inc_x, inc_y)) {
-                    
+                if(abs(inc_x) - abs(inc_y) || !no_col) {
                     Serial.println("Invalid bishop movement");
                     return false;
                 }
@@ -192,8 +221,7 @@ class Board {
                 Serial.println("Entered queen case");
 
                 // Queen can move anywhere as long as nothing is in the way
-                if(!no_collisions(curr_x, curr_y, new_x, new_y, inc_x, inc_y)) {
-                    
+                if(!no_col) {
                     Serial.println("Invalid queen movement");
                     return false;
                 }
@@ -205,8 +233,8 @@ class Board {
                 // King can move anywhere as long as nothing is in the way
                 // and movement is not more than 1 square
                 // Don't need to check collisions because only moving 1
-                if(abs(new_x - curr_x) < 2 && abs(new_y - curr_y) < 2){
-                    Serial.println("Invalid queen movement");
+                if(abs(new_x - curr_x) > 1 && abs(new_y - curr_y) > 1){
+                    Serial.println("Invalid king movement");
                     return false;
                 }
                 break;
@@ -272,11 +300,12 @@ class Board {
                            int inc_x, int inc_y){
 
         // Subtract inc so we only move to the square before new
-        while(curr_x != new_x - inc_x && curr_y != new_y - inc_y){
+        while(curr_x != new_x - inc_x || curr_y != new_y - inc_y){
             
             // Increment first so piece doesn't collide with itself 
-            curr_x += inc_x;
-            curr_y += inc_y;
+            // Only increment if we aren't already there
+            curr_x += inc_x*(curr_x != new_x);
+            curr_y += inc_y*(curr_y != new_y);
 
             if(occupied(curr_x, curr_y)){
                 Serial.println("Piece in the way at: " + String(curr_x) + String(curr_y));
@@ -288,9 +317,25 @@ class Board {
         return true;
     }
 
-    // Use move, to check every single move to the king of color c.
+    // Use valid_move, to check every single move to the king of color c.
     // If any move is valid, this returns true
     bool check(Color c){
+
+        Piece *p = &pieces.pieces[0];
+        Piece *k = p;
+
+        // Point k at the king of color c
+        while(k->name != King || k->color != c)
+            k++;
+
+        Serial.println("Found king at: " + String(k->X) + String(k->Y)); 
+
+        for(int i = 0; i < 32; i++){
+            if(p->color == c && valid_move(p->X, p->Y, k->X, k->Y)){
+                Serial.println("Check");
+                return true;
+            }
+        }
         return false;
     }
     
@@ -316,73 +361,28 @@ void setup(){
 }
 
 void loop(){
-    delay(1000); // Allow for serial comms to begin.
-
+    delay(1000);
     b.print_board();
-    delay(2000);
 
-    // Bishop testing
-   // if(b.valid_move(2,0,0,2))
-   //     b.move(2,0,0,2); // Move black bishop (Should fail)
-   // b.print_board();
-   // delay(2000);
+    String s; // for incoming serial data
 
-   // b.move(1,1,1,2); // Move black pawn forward
-   // b.print_board();
-   // delay(2000);
+    // Make moves by keyboard CTRL + S + P to send move
+    while(true){
+        if (Serial.available() > 0) {
+            // read the incoming bytes:
+            s = Serial.readString();
 
-   // if(b.valid_move(2,0,0,2))
-   //     b.move(2,0,0,2); // Move black bishop
-   // b.print_board();
-   // delay(2000);
-
-   // b.move(2,6,2,4); // Move white pawn in line with bishop
-   // b.print_board();
-   // delay(2000);
-
-   // if(b.valid_move(0,2,2,4)) // Take white pawn with bishop
-   //     b.move(0,2,2,4);
-   // b.print_board();
-   // delay(2000);
-
-   // if(b.valid_move(2,4,3,3)) // Move bishop back
-   //     b.move(2,4,3,3);
-   // b.print_board();
-   // delay(2000);
-  
-   // if(b.valid_move(3,3,3,4)) // Illegal rook style movement
-   //     b.move(3,3,3,4);
-   // b.print_board();
-   // delay(2000);
-
-   // if(b.valid_move(3,3,4,3)) // Illegal rook style movement
-   //     b.move(3,3,4,3);
-   // b.print_board();
-
-    // Knight testing
-    if(b.valid_move(1,0,3,1)) // Illegal horse movement
-        b.move(1,0,3,1);
-    b.print_board();
-    delay(2000);
-
-    if(b.valid_move(1,0,2,2)) // Legal knight movement
-        b.move(1,0,2,2);
-    b.print_board();
-    delay(2000);
-
-    b.move(3,6,3,4); // Move white pawn in front of knight
-    b.print_board();
-    delay(2000);
-
-    if(b.valid_move(2,2,3,4)) // Take pawn with knight
-        b.move(2,2,3,4);
-    b.print_board();
-    delay(2000);
-
-    if(b.valid_move(3,4,5,3)) // Take pawn with knight
-        b.move(3,4,5,3);
-    b.print_board();
-    delay(2000);
-
-    while(true){}
+            int int_string[4];
+            for (int i = 0; i < 4; i++){
+                int_string[i] = s[i] - '0';
+                Serial.print(int_string[i]);
+            }
+            Serial.println();
+            
+            if(b.valid_move(int_string[0],int_string[1],int_string[2],int_string[3])){
+               b.move(int_string[0],int_string[1],int_string[2],int_string[3]);
+            }
+            b.print_board();
+        }
+    }
 }
