@@ -78,7 +78,7 @@ class Board {
 
     // Prints the board (For debugging)
     void print_board(){
-        // 64 + null terminator, all set to _
+        // 64 + null terminator, all set to -
         char board_string[65]; 
         for (byte i = 0; i < 64; i++)
             board_string[i] = '-';    
@@ -111,13 +111,13 @@ class Board {
             }
 
             if(i % 8 == 0){
-                Serial.print(String(8 - row) + "   ");
+                Serial.print(String(8 - row) + "  ");
             }
 
             Serial.print(' ');
             Serial.print(board_string[64 - (row*8) + (i%8)]);
         }
-        Serial.println("\n\n 0 1 2 3 4 5 6 7\n\n\n\n");
+        Serial.println("\n\n    0 1 2 3 4 5 6 7\n\n\n\n");
     }
 
     // Returns true if the move is valid. Does not make the move.
@@ -230,22 +230,36 @@ class Board {
             case(King):
                 Serial.println("Entered king case");
 
-                // King can move anywhere as long as nothing is in the way
-                // and movement is not more than 1 square
-                // Don't need to check collisions because only moving 1
-                if(abs(new_x - curr_x) > 1 && abs(new_y - curr_y) > 1){
+                // King can move anywhere as long as movement is not 
+                // more than 1 square, and not into check
+                // Checking collisions is handled outside switch block
+                if(abs(new_x - curr_x) > 1 || abs(new_y - curr_y) > 1){
                     Serial.println("Invalid king movement");
                     return false;
                 }
+
+                // TODO this is messy. Streamline it
+                // Move, test check, then unmove
+                move(curr_x, curr_y, new_x, new_y);
+                if(check(new_x, new_y)){
+                    Serial.println("Cannot move into check");
+                    move(new_x, new_y, curr_x, curr_y);
+                    return false;
+                }
+                move(new_x, new_y, curr_x, curr_y);
+
                 break;
         }
         
         // Check if the move the put mover in check
-        if(check(p->color)){
+        Piece *k = get_king(p->color);
+
+        if(check(k->X, k->Y)){
             Serial.println("Move puts mover in check");
             return false;
         }
-
+        
+        // TODO consider making this part a seperate function
         // Check if a piece was taken
         Piece *occ = occupied(new_x, new_y);
 
@@ -317,31 +331,38 @@ class Board {
         return true;
     }
 
-    // Use valid_move, to check every single move to the king of color c.
+    // Use valid_move, to check every single move to the kings square
     // If any move is valid, this returns true
-    bool check(Color c){
+    bool check(byte king_x, byte king_y){
 
         Piece *p = &pieces.pieces[0];
-        Piece *k = p;
-
-        // Point k at the king of color c
-        while(k->name != King || k->color != c)
-            k++;
-
-        Serial.println("Found king at: " + String(k->X) + String(k->Y)); 
 
         for(int i = 0; i < 32; i++){
-            if(p->color == c && valid_move(p->X, p->Y, k->X, k->Y)){
+            if(valid_move(p->X, p->Y, king_x, king_y)){
                 Serial.println("Check");
                 return true;
             }
+            p++;
         }
         return false;
+    }
+
+    // Returns a pointer to king of color c
+    Piece *get_king(Color c){
+
+        // Point k at the king of color c
+        Piece *k = &pieces.pieces[0];
+
+        while(k->name != King || k->color != c)
+            k++;
+        Serial.println("Found king at: " + String(k->X) + String(k->Y)); 
+
+        return k;
     }
     
     // Returns a pointer to any piece that occupies the specified square
     // Else return nullptr
-    Piece* occupied(byte x, byte y){
+    Piece *occupied(byte x, byte y){
 
         Piece *p = &this->pieces.pieces[0];
         
