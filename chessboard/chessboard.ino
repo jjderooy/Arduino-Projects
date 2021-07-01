@@ -135,8 +135,8 @@ class Board {
 
         // Check if the movement is a proper diagonal,
         // horizontal, or vertical movement. Knights are exempt
-        if(((abs(inc_x) > abs(inc_y) && inc_y != 0) || 
-            (abs(inc_y) > abs(inc_x) && inc_x != 0)) &&
+        if(((abs(inc_x) > abs(inc_y) && inc_y != 0)  || 
+            (abs(inc_x) < abs(inc_y) && inc_x != 0)) &&
             p->name != Knight){
                Serial.println("Invalid slope");
                return false;
@@ -202,7 +202,10 @@ class Board {
                 Serial.println("Entered knight case");
 
                 // Knights must move at least 3 squares (component wise)
-                if(abs(curr_x - new_x) + abs(curr_y - new_y) != 3){
+                // and neither component can be 0 (catches movement
+                // 3 squares horizontal or vertical)
+                if(abs(curr_x - new_x) + abs(curr_y - new_y) != 3 &&
+                   (curr_x != new_x || curr_y != new_y)){
                     Serial.println("Invalid knight movement");
                     return false;
                 }
@@ -241,27 +244,29 @@ class Board {
                 break;
         }
 
-        
-        // Check if the move put the mover in check
-        Piece *k = get_king(p->color);
-
-        // Move, test check, then unmove
-        move(curr_x, curr_y, new_x, new_y, false);
-        if(layers < 2 && check(k->X, k->Y, layers)){
-            Serial.println("Move puts mover in check");
-            return false;
-        }
-        move(curr_x, curr_y, new_x, new_y, false);
-        
-        // TODO consider making this part a seperate function
         // Check if a piece was taken
-        Piece *occ = occupied(new_x, new_y);
+        Piece *tmp = occupied(new_x, new_y);
 
         // Can't take your own color
-        if(occ->color == p->color){
+        if(tmp->color == p->color){
             Serial.println("Cannot take own color");
             return false;
         }
+
+        // Check if the move put the mover in check
+        tmp = get_king(p->color);
+
+        // Move, test check, then unmove
+        // this breaks because pieces overlap and then the 
+        // engine doesn't know what to move when things are moving back
+        move(curr_x, curr_y, new_x, new_y, false);
+        if(layers < 2 && check(tmp->X, tmp->Y, layers)){
+            Serial.println("Move puts mover in check");
+            move(new_x, new_y, curr_x, curr_y, false);
+            return false;
+        }
+        move(new_x, new_y, curr_x, curr_y, false);
+        return true;
     }
 
     // Moves the piece and take opponent's piece if specifed
