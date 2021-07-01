@@ -6,8 +6,8 @@ enum Name : byte { Pawn, Rook, Knight, Bishop, Queen, King };
 
 enum Color : int { Black = 1, White = -1};
 
-char display_chars_white[6] { 'P', 'R', 'N', 'B', 'Q', 'K' };
-char display_chars_black[6] { 'p', 'r', 'n', 'b', 'q', 'k' };
+char display_chars_white[6] { 'P', 'R', 'H', 'B', 'Q', 'K' };
+char display_chars_black[6] { 'p', 'r', 'h', 'b', 'q', 'k' };
 
 class Piece {
     public:
@@ -140,7 +140,7 @@ class Board {
             p->name != Knight){
                Serial.println("Invalid slope");
                return false;
-           }
+        }
 
         // Normalize increments to magnitude of 1
         // if inc is 0, set inc to 0 (avoiding div by 0)
@@ -232,62 +232,55 @@ class Board {
                 Serial.println("Entered king case");
 
                 // King can move anywhere as long as movement is not 
-                // more than 1 square, and not into check
+                // more than 1 square
                 // Checking collisions is handled outside switch block
                 if(abs(new_x - curr_x) > 1 || abs(new_y - curr_y) > 1){
                     Serial.println("Invalid king movement");
                     return false;
                 }
-
-                // TODO this is messy. Streamline it
-                // Move, test check, then unmove
-                move(curr_x, curr_y, new_x, new_y);
-                if(check(new_x, new_y, layers)){
-                    Serial.println("Cannot move into check");
-                    move(new_x, new_y, curr_x, curr_y);
-                    return false;
-                }
-                move(new_x, new_y, curr_x, curr_y);
-
                 break;
         }
+
         
         // Check if the move put the mover in check
         Piece *k = get_king(p->color);
 
+        // Move, test check, then unmove
+        move(curr_x, curr_y, new_x, new_y, false);
         if(layers < 2 && check(k->X, k->Y, layers)){
             Serial.println("Move puts mover in check");
             return false;
         }
+        move(curr_x, curr_y, new_x, new_y, false);
         
         // TODO consider making this part a seperate function
         // Check if a piece was taken
         Piece *occ = occupied(new_x, new_y);
 
-        // Nothing there? It's a valid move
-        if(occ == nullptr){
-            Serial.println("Valid move");
-            return true;
-        }
-
         // Can't take your own color
-        else if(occ->color == p->color){
+        if(occ->color == p->color){
             Serial.println("Cannot take own color");
             return false;
         }
-        // "Take" the piece and move it off the board
-        else{
-            Serial.println("Took opponents piece at: " + String(occ->X) + String(occ->Y));
-            occ->X = 100;
-            occ->Y = 100;
-            return true;
-        }
     }
 
-    // Moves the piece
-    void move(byte curr_x, byte curr_y, byte new_x, byte new_y){
+    // Moves the piece and take opponent's piece if specifed
+    // take param only exists for when checking check as we don't
+    // actually want to take pieces.
+    void move(byte curr_x, byte curr_y, byte new_x, byte new_y, bool take){
         
-        Piece *p = occupied(curr_x, curr_y);
+        // valid_move() makes sure *occ doesn't point to a piece of movers color
+        Piece *p = occupied(new_x, new_y);
+
+        // "Take" the piece and move it off the board
+        if(p && take){
+            Serial.println("Took opponents piece at: " + String(p->X) + String(p->Y));
+            p->X = 100;
+            p->Y = 100;
+        }
+
+        // Move the piece to the new location
+        p = occupied(curr_x, curr_y);
 
         p->X = new_x;
         p->Y = new_y;
@@ -393,9 +386,10 @@ void loop(){
             }
             Serial.println();
             
-            if(b.valid_move(int_string[0],int_string[1],int_string[2],int_string[3], 0)){
-               b.move(int_string[0],int_string[1],int_string[2],int_string[3]);
-            }
+            if(b.valid_move(int_string[0],int_string[1],int_string[2],int_string[3], 0))
+               b.move(int_string[0],int_string[1],int_string[2],int_string[3], true);
+
             b.print_board();
         }
     }
+}
