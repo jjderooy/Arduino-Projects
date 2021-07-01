@@ -122,7 +122,7 @@ class Board {
 
     // Returns true if the move is valid. Does not make the move.
     // Assumes the move is on the chessboard.
-    bool valid_move(byte curr_x, byte curr_y, byte new_x, byte new_y){
+    bool valid_move(byte curr_x, byte curr_y, byte new_x, byte new_y, byte layers){
         
         // Point p at the piece that will be moved.
         Piece *p = occupied(curr_x, curr_y);
@@ -201,8 +201,9 @@ class Board {
             case(Knight):
                 Serial.println("Entered knight case");
 
-                if(!valid_knight(curr_x, curr_y, new_x, new_y)){
-                    Serial.println("Invalid knight movment");
+                // Knights must move at least 3 squares (component wise)
+                if(abs(curr_x - new_x) + abs(curr_y - new_y) != 3){
+                    Serial.println("Invalid knight movement");
                     return false;
                 }
                 break;
@@ -241,7 +242,7 @@ class Board {
                 // TODO this is messy. Streamline it
                 // Move, test check, then unmove
                 move(curr_x, curr_y, new_x, new_y);
-                if(check(new_x, new_y)){
+                if(check(new_x, new_y, layers)){
                     Serial.println("Cannot move into check");
                     move(new_x, new_y, curr_x, curr_y);
                     return false;
@@ -251,10 +252,10 @@ class Board {
                 break;
         }
         
-        // Check if the move the put mover in check
+        // Check if the move put the mover in check
         Piece *k = get_king(p->color);
 
-        if(check(k->X, k->Y)){
+        if(layers < 2 && check(k->X, k->Y, layers)){
             Serial.println("Move puts mover in check");
             return false;
         }
@@ -295,17 +296,6 @@ class Board {
 
     private:
 
-    bool valid_knight(byte curr_x, byte curr_y, byte new_x, byte new_y){
-        
-        // Knights must move at least 3 squares (component wise)
-        if(abs(curr_x - new_x) + abs(curr_y - new_y) != 3){
-            Serial.println("Invalid knight movement");
-            return false;
-        }
-
-        return true;
-    }
-
     // Move from curr to new using the inc provided
     // If any pieces are encountered in the way, return false
     // Assumes piece moves at least one square
@@ -333,12 +323,15 @@ class Board {
 
     // Use valid_move, to check every single move to the kings square
     // If any move is valid, this returns true
-    bool check(byte king_x, byte king_y){
+    // This ends up being recursive so we need to pass the recursive depth
+    // We only need to check two layers deep to make sure no one is putting
+    // themselves in check.
+    bool check(byte king_x, byte king_y, byte layers){
 
         Piece *p = &pieces.pieces[0];
 
         for(int i = 0; i < 32; i++){
-            if(valid_move(p->X, p->Y, king_x, king_y)){
+            if(valid_move(p->X, p->Y, king_x, king_y, layers + 1)){ 
                 Serial.println("Check");
                 return true;
             }
@@ -378,7 +371,7 @@ class Board {
 Board b;
 
 void setup(){
-    Serial.begin(9600);
+    Serial.begin(115200);
 }
 
 void loop(){
@@ -400,10 +393,9 @@ void loop(){
             }
             Serial.println();
             
-            if(b.valid_move(int_string[0],int_string[1],int_string[2],int_string[3])){
+            if(b.valid_move(int_string[0],int_string[1],int_string[2],int_string[3], 0)){
                b.move(int_string[0],int_string[1],int_string[2],int_string[3]);
             }
             b.print_board();
         }
     }
-}
