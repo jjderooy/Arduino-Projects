@@ -168,8 +168,13 @@ class Board {
             case(Pawn):
                 Serial.println("Entered pawn case");
                 
+                // no_collisions only checks closest square so we need to
+                // check if new is occupied by anything since pawns can
+                // only take diagonally
+
                 // Moving one square forward. Recall Black = 1, White = -1
-                if(inc_x == 0 && new_y - curr_y == p->color && no_col){
+                if(inc_x == 0 && new_y - curr_y == p->color &&
+                   !occupied(new_x, new_y)){
                     Serial.println("One square forward movement");
                     break;
                 }
@@ -178,7 +183,8 @@ class Board {
                     // Black && curr_y = 1
                     // White && curr_y = 6
                 if(inc_x == 0 && (new_y - curr_y) == 2*p->color && 
-                   curr_y == (p->color == Black ? 1 : 6) && no_col){
+                   curr_y == (p->color == Black ? 1 : 6) &&
+                   !occupied(new_x, new_y) && no_col){
                     Serial.println("Two square forward movement");
                     break;
                 }
@@ -264,10 +270,8 @@ class Board {
         tmp = get_king(p->color);
 
         // Move, test check, then unmove
-        // this breaks because pieces overlap and then the 
-        // engine doesn't know what to move when things are moving back
         move(p, new_x, new_y, false);
-        if(layers < 2 && check(tmp->X, tmp->Y, layers)){
+        if(layers < 1 && check(tmp->X, tmp->Y, layers)){
             Serial.println("Move puts mover in check");
             move(p, curr_x, curr_y, false);
             return false;
@@ -341,8 +345,6 @@ class Board {
     // Use valid_move, to check every single move to the kings square
     // If any move is valid, this returns true
     // This ends up being recursive so we need to pass the recursive depth
-    // We only need to check two layers deep to make sure no one is putting
-    // themselves in check.
     bool check(byte king_x, byte king_y, byte layers){
 
         Piece *p = &pieces.pieces[0];
