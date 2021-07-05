@@ -122,16 +122,18 @@ class Board {
 
     // Returns true if the move is valid. Does not make the move.
     // Assumes the move is on the chessboard.
-    bool valid_move(byte curr_x, byte curr_y, byte new_x, byte new_y, byte layers){
-        
-        // Point p at the piece that will be moved.
-        Piece *p = occupied(curr_x, curr_y);
-        
-        // Get our increments for movment. Used by no_collisions()
+    bool valid_move(Piece *p, byte new_x, byte new_y, byte layers){
+
+        byte curr_x = p->X;
+        byte curr_y = p->Y;
+
+        // Get our increments for movement. Used by no_collisions()
         // Increments will be normalized to + or -1 depending on direction
         // If no movement occurs, inc = 0
         int inc_x = new_x - curr_x;
         int inc_y = new_y - curr_y;
+
+        Serial.print(String(curr_x) + String(curr_y) + ' ');
 
         // Check if the movement is a proper diagonal,
         // horizontal, or vertical movement. Knights are exempt
@@ -154,7 +156,12 @@ class Board {
             return false;
         }
 
-        bool no_col = no_collisions(curr_x, curr_y, new_x, new_y, inc_x, inc_y);
+        bool no_col;
+        if(p->name != Knight)
+            no_col = no_collisions(curr_x, curr_y, new_x, new_y, inc_x, inc_y);
+        else
+            no_col = false;
+
 
         // Each Piece has a set of possible moves.
         switch(p->name){
@@ -204,8 +211,8 @@ class Board {
                 // Knights must move at least 3 squares (component wise)
                 // and neither component can be 0 (catches movement
                 // 3 squares horizontal or vertical)
-                if(abs(curr_x - new_x) + abs(curr_y - new_y) != 3 &&
-                   (curr_x != new_x || curr_y != new_y)){
+                if(abs(curr_x - new_x) + abs(curr_y - new_y) != 3 || 
+                   curr_x == new_x || curr_y == new_y){
                     Serial.println("Invalid knight movement");
                     return false;
                 }
@@ -259,38 +266,50 @@ class Board {
         // Move, test check, then unmove
         // this breaks because pieces overlap and then the 
         // engine doesn't know what to move when things are moving back
-        move(curr_x, curr_y, new_x, new_y, false);
+        move(p, new_x, new_y, false);
         if(layers < 2 && check(tmp->X, tmp->Y, layers)){
             Serial.println("Move puts mover in check");
-            move(new_x, new_y, curr_x, curr_y, false);
+            move(p, curr_x, curr_y, false);
             return false;
         }
-        move(new_x, new_y, curr_x, curr_y, false);
+        move(p, curr_x, curr_y, false);
         return true;
     }
 
     // Moves the piece and take opponent's piece if specifed
     // take param only exists for when checking check as we don't
     // actually want to take pieces.
-    void move(byte curr_x, byte curr_y, byte new_x, byte new_y, bool take){
-        
-        // valid_move() makes sure *occ doesn't point to a piece of movers color
-        Piece *p = occupied(new_x, new_y);
+    void move(Piece *p, byte new_x, byte new_y, bool take){
 
-        // "Take" the piece and move it off the board
-        if(p && take){
-            Serial.println("Took opponents piece at: " + String(p->X) + String(p->Y));
-            p->X = 100;
-            p->Y = 100;
+        // Check for piece in the target square
+        Piece *occ = occupied(new_x, new_y);
+
+        // "Take" the piece if required and move it off the board
+        if(occ && take){
+            Serial.println("Took opponents piece at: " + String(occ->X) + String(occ->Y));
+            occ->X = 100;
+            occ->Y = 100;
         }
 
         // Move the piece to the new location
-        p = occupied(curr_x, curr_y);
-
         p->X = new_x;
         p->Y = new_y;
     }
     
+
+    // Returns a pointer to any piece that occupies the specified square
+    // Else return nullptr
+    Piece *occupied(byte x, byte y){
+
+        Piece *p = &this->pieces.pieces[0];
+        
+        for(int i = 0; i < 32; i++){
+            if(p->X == x && p->Y == y)
+                return p;
+            p++;
+        }
+        return nullptr;
+    }
 
     private:
 
@@ -329,7 +348,7 @@ class Board {
         Piece *p = &pieces.pieces[0];
 
         for(int i = 0; i < 32; i++){
-            if(valid_move(p->X, p->Y, king_x, king_y, layers + 1)){ 
+            if(valid_move(p, king_x, king_y, layers + 1)){ 
                 Serial.println("Check");
                 return true;
             }
@@ -350,20 +369,6 @@ class Board {
 
         return k;
     }
-    
-    // Returns a pointer to any piece that occupies the specified square
-    // Else return nullptr
-    Piece *occupied(byte x, byte y){
-
-        Piece *p = &this->pieces.pieces[0];
-        
-        for(int i = 0; i < 32; i++){
-            if(p->X == x && p->Y == y)
-                return p;
-            p++;
-        }
-        return nullptr;
-    }
 };
 
 Board b;
@@ -376,24 +381,30 @@ void loop(){
     delay(1000);
     b.print_board();
 
-    String s; // for incoming serial data
+    String s; // For incoming serial data
 
     // Make moves by keyboard CTRL + S + P to send move
     while(true){
         if (Serial.available() > 0) {
-            // read the incoming bytes:
-            s = Serial.readString();
 
+            // Read the incoming bytes:
+            s = Serial.readString();
+            
             int int_string[4];
+
+            // Print the move
             for (int i = 0; i < 4; i++){
                 int_string[i] = s[i] - '0';
                 Serial.print(int_string[i]);
             }
             Serial.println();
             
-            if(b.valid_move(int_string[0],int_string[1],int_string[2],int_string[3], 0))
-               b.move(int_string[0],int_string[1],int_string[2],int_string[3], true);
+            Piece *p = b.occupied(int_string[0],int_string[1]);
 
+            // Make the move
+            if(b.valid_move(p,int_string[2],int_string[3], 0))
+               b.move(p, int_string[2],int_string[3], true);
+            
             b.print_board();
         }
     }
