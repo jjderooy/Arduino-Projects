@@ -2,12 +2,14 @@
 // The opponent sits across from you. ie. pawn rows are horizontal.
 // The opponent is white
 
-enum Name : byte { Pawn, Rook, Knight, Bishop, Queen, King };
+enum Name : byte { Pawn = 1, Rook = 5, Knight = 3, Bishop = 4, Queen = 9, King = 0 };
 
 enum Color : int { Black = 1, White = -1};
 
-char display_chars_white[6] { 'P', 'R', 'H', 'B', 'Q', 'K' };
-char display_chars_black[6] { 'p', 'r', 'h', 'b', 'q', 'k' };
+// This is gross but will not be needed in final version.
+// Blank spaces exist so chars line up with Name enum values
+char display_chars_white[10] { 'K', 'P', ' ', 'H', 'B', 'R', ' ', ' ', ' ', 'Q' };
+char display_chars_black[10] { 'k', 'p', ' ', 'h', 'b', 'r', ' ', ' ', ' ', 'q' };
 
 class Piece {
     public:
@@ -117,7 +119,7 @@ class Board {
             Serial.print(' ');
             Serial.print(board_string[64 - (row*8) + (i%8)]);
         }
-        Serial.println("\n\n    0 1 2 3 4 5 6 7\n\n\n\n");
+        Serial.println("\n\n    0 1 2 3 4 5 6 7");
     }
 
     // Returns true if the move is valid. Does not make the move.
@@ -373,7 +375,46 @@ class Board {
     }
 };
 
+class AI {
+    public:
+
+        byte lvl;
+        Color c;
+        Board *b;
+
+        AI(Color color, byte difficulty_lvl, Board *board){
+            lvl = difficulty_lvl;
+            c = color;
+            b = board;
+        }
+
+        void make_move(){
+
+        }
+
+        // Add up the values of all the pieces 
+        // score > 0 means c(olor) is winning
+        // score < 0 means c(olor) is losing
+        int score_board(){
+            int score = 0;
+            Piece *p = &b->pieces.pieces[0];
+
+            for(byte i = 0; i < 32; i++){
+
+                // Check if piece is on the board
+                // Recall Black = 1, White = -1
+                if(p->X < 32)
+                    score += int(p->name) * p->color * c;
+
+                p++;
+            }
+
+            return score;
+        }
+};
+
 Board b;
+AI beth(White, 1, &b);
 
 void setup(){
     Serial.begin(115200);
@@ -408,6 +449,7 @@ void loop(){
                b.move(p, int_string[2],int_string[3], true);
             
             b.print_board();
+            Serial.println("Score: " + String(beth.score_board()) + "\n\n\n");
         }
     }
 }
