@@ -2,12 +2,14 @@
 // The opponent sits across from you. ie. pawn rows are horizontal.
 // The opponent is white
 
-enum Name : byte { Pawn, Rook, Knight, Bishop, Queen, King };
+enum Name : byte { Pawn = 1, Rook = 5, Knight = 3, Bishop = 4, Queen = 9, King = 0 };
 
 enum Color : int { Black = 1, White = -1};
 
-char display_chars_white[6] { 'P', 'R', 'H', 'B', 'Q', 'K' };
-char display_chars_black[6] { 'p', 'r', 'h', 'b', 'q', 'k' };
+// This is gross but will not be needed in final version.
+// Blank spaces exist so chars line up with Name enum values
+char display_chars_white[10] { 'K', 'P', ' ', 'H', 'B', 'R', ' ', ' ', ' ', 'Q' };
+char display_chars_black[10] { 'k', 'p', ' ', 'h', 'b', 'r', ' ', ' ', ' ', 'q' };
 
 class Piece {
     public:
@@ -117,21 +119,23 @@ class Board {
             Serial.print(' ');
             Serial.print(board_string[64 - (row*8) + (i%8)]);
         }
-        Serial.println("\n\n    0 1 2 3 4 5 6 7\n\n\n\n");
+        Serial.println("\n\n    0 1 2 3 4 5 6 7");
     }
 
     // Returns true if the move is valid. Does not make the move.
     // Assumes the move is on the chessboard.
-    bool valid_move(byte curr_x, byte curr_y, byte new_x, byte new_y, byte layers){
-        
-        // Point p at the piece that will be moved.
-        Piece *p = occupied(curr_x, curr_y);
-        
-        // Get our increments for movment. Used by no_collisions()
+    bool valid_move(Piece *p, byte new_x, byte new_y, byte layers){
+
+        byte curr_x = p->X;
+        byte curr_y = p->Y;
+
+        // Get our increments for movement. Used by no_collisions()
         // Increments will be normalized to + or -1 depending on direction
         // If no movement occurs, inc = 0
         int inc_x = new_x - curr_x;
         int inc_y = new_y - curr_y;
+
+        Serial.print(String(curr_x) + String(curr_y) + ' ');
 
         // Check if the movement is a proper diagonal,
         // horizontal, or vertical movement. Knights are exempt
@@ -154,15 +158,25 @@ class Board {
             return false;
         }
 
-        bool no_col = no_collisions(curr_x, curr_y, new_x, new_y, inc_x, inc_y);
+        bool no_col;
+        if(p->name != Knight)
+            no_col = no_collisions(curr_x, curr_y, new_x, new_y, inc_x, inc_y);
+        else
+            no_col = false;
+
 
         // Each Piece has a set of possible moves.
         switch(p->name){
             case(Pawn):
                 Serial.println("Entered pawn case");
                 
+                // no_collisions only checks closest square so we need to
+                // check if new is occupied by anything since pawns can
+                // only take diagonally
+
                 // Moving one square forward. Recall Black = 1, White = -1
-                if(inc_x == 0 && new_y - curr_y == p->color && no_col){
+                if(inc_x == 0 && new_y - curr_y == p->color &&
+                   !occupied(new_x, new_y)){
                     Serial.println("One square forward movement");
                     break;
                 }
@@ -171,7 +185,8 @@ class Board {
                     // Black && curr_y = 1
                     // White && curr_y = 6
                 if(inc_x == 0 && (new_y - curr_y) == 2*p->color && 
-                   curr_y == (p->color == Black ? 1 : 6) && no_col){
+                   curr_y == (p->color == Black ? 1 : 6) &&
+                   !occupied(new_x, new_y) && no_col){
                     Serial.println("Two square forward movement");
                     break;
                 }
@@ -204,8 +219,8 @@ class Board {
                 // Knights must move at least 3 squares (component wise)
                 // and neither component can be 0 (catches movement
                 // 3 squares horizontal or vertical)
-                if(abs(curr_x - new_x) + abs(curr_y - new_y) != 3 &&
-                   (curr_x != new_x || curr_y != new_y)){
+                if(abs(curr_x - new_x) + abs(curr_y - new_y) != 3 || 
+                   curr_x == new_x || curr_y == new_y){
                     Serial.println("Invalid knight movement");
                     return false;
                 }
@@ -257,40 +272,50 @@ class Board {
         tmp = get_king(p->color);
 
         // Move, test check, then unmove
-        // this breaks because pieces overlap and then the 
-        // engine doesn't know what to move when things are moving back
-        move(curr_x, curr_y, new_x, new_y, false);
-        if(layers < 2 && check(tmp->X, tmp->Y, layers)){
+        move(p, new_x, new_y, false);
+        if(layers < 1 && check(tmp->X, tmp->Y, layers)){
             Serial.println("Move puts mover in check");
-            move(new_x, new_y, curr_x, curr_y, false);
+            move(p, curr_x, curr_y, false);
             return false;
         }
-        move(new_x, new_y, curr_x, curr_y, false);
+        move(p, curr_x, curr_y, false);
         return true;
     }
 
     // Moves the piece and take opponent's piece if specifed
     // take param only exists for when checking check as we don't
     // actually want to take pieces.
-    void move(byte curr_x, byte curr_y, byte new_x, byte new_y, bool take){
-        
-        // valid_move() makes sure *occ doesn't point to a piece of movers color
-        Piece *p = occupied(new_x, new_y);
+    void move(Piece *p, byte new_x, byte new_y, bool take){
 
-        // "Take" the piece and move it off the board
-        if(p && take){
-            Serial.println("Took opponents piece at: " + String(p->X) + String(p->Y));
-            p->X = 100;
-            p->Y = 100;
+        // Check for piece in the target square
+        Piece *occ = occupied(new_x, new_y);
+
+        // "Take" the piece if required and move it off the board
+        if(occ && take){
+            Serial.println("Took opponents piece at: " + String(occ->X) + String(occ->Y));
+            occ->X = 100;
+            occ->Y = 100;
         }
 
         // Move the piece to the new location
-        p = occupied(curr_x, curr_y);
-
         p->X = new_x;
         p->Y = new_y;
     }
     
+
+    // Returns a pointer to any piece that occupies the specified square
+    // Else return nullptr
+    Piece *occupied(byte x, byte y){
+
+        Piece *p = &this->pieces.pieces[0];
+        
+        for(int i = 0; i < 32; i++){
+            if(p->X == x && p->Y == y)
+                return p;
+            p++;
+        }
+        return nullptr;
+    }
 
     private:
 
@@ -322,14 +347,12 @@ class Board {
     // Use valid_move, to check every single move to the kings square
     // If any move is valid, this returns true
     // This ends up being recursive so we need to pass the recursive depth
-    // We only need to check two layers deep to make sure no one is putting
-    // themselves in check.
     bool check(byte king_x, byte king_y, byte layers){
 
         Piece *p = &pieces.pieces[0];
 
         for(int i = 0; i < 32; i++){
-            if(valid_move(p->X, p->Y, king_x, king_y, layers + 1)){ 
+            if(valid_move(p, king_x, king_y, layers + 1)){ 
                 Serial.println("Check");
                 return true;
             }
@@ -350,23 +373,48 @@ class Board {
 
         return k;
     }
-    
-    // Returns a pointer to any piece that occupies the specified square
-    // Else return nullptr
-    Piece *occupied(byte x, byte y){
+};
 
-        Piece *p = &this->pieces.pieces[0];
-        
-        for(int i = 0; i < 32; i++){
-            if(p->X == x && p->Y == y)
-                return p;
-            p++;
+class AI {
+    public:
+
+        byte lvl;
+        Color c;
+        Board *b;
+
+        AI(Color color, byte difficulty_lvl, Board *board){
+            lvl = difficulty_lvl;
+            c = color;
+            b = board;
         }
-        return nullptr;
-    }
+
+        void make_move(){
+
+        }
+
+        // Add up the values of all the pieces 
+        // score > 0 means c(olor) is winning
+        // score < 0 means c(olor) is losing
+        int score_board(){
+            int score = 0;
+            Piece *p = &b->pieces.pieces[0];
+
+            for(byte i = 0; i < 32; i++){
+
+                // Check if piece is on the board
+                // Recall Black = 1, White = -1
+                if(p->X < 32)
+                    score += int(p->name) * p->color * c;
+
+                p++;
+            }
+
+            return score;
+        }
 };
 
 Board b;
+AI beth(White, 1, &b);
 
 void setup(){
     Serial.begin(115200);
@@ -376,25 +424,32 @@ void loop(){
     delay(1000);
     b.print_board();
 
-    String s; // for incoming serial data
+    String s; // For incoming serial data
 
     // Make moves by keyboard CTRL + S + P to send move
     while(true){
         if (Serial.available() > 0) {
-            // read the incoming bytes:
-            s = Serial.readString();
 
+            // Read the incoming bytes:
+            s = Serial.readString();
+            
             int int_string[4];
+
+            // Print the move
             for (int i = 0; i < 4; i++){
                 int_string[i] = s[i] - '0';
                 Serial.print(int_string[i]);
             }
             Serial.println();
             
-            if(b.valid_move(int_string[0],int_string[1],int_string[2],int_string[3], 0))
-               b.move(int_string[0],int_string[1],int_string[2],int_string[3], true);
+            Piece *p = b.occupied(int_string[0],int_string[1]);
 
+            // Make the move
+            if(b.valid_move(p,int_string[2],int_string[3], 0))
+               b.move(p, int_string[2],int_string[3], true);
+            
             b.print_board();
+            Serial.println("Score: " + String(beth.score_board()) + "\n\n\n");
         }
     }
 }
