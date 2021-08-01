@@ -11,6 +11,16 @@ enum Color : int { Black = 1, White = -1};
 char display_chars_white[10] { 'K', 'P', ' ', 'H', 'B', 'R', ' ', ' ', ' ', 'Q' };
 char display_chars_black[10] { 'k', 'p', ' ', 'h', 'b', 'r', ' ', ' ', ' ', 'q' };
 
+// Map 0-15 to the pin names of arduino
+// [0,7] stores x pins, [8,15] stores y pins
+byte btn_indices[16] = { 2, 3, 4, 5, 6, 7, 8, 9, A0, A1, A2, A3, A4, A5, A6, A7 };
+
+// struct that stores a move
+// Array is in from { curr_x, curr_y, new_x, new_y }
+typedef struct{
+    byte pos[4];
+}Move;
+
 class Piece {
     public:
     Piece() {};
@@ -124,6 +134,7 @@ class Board {
 
     // Returns true if the move is valid. Does not make the move.
     // Assumes the move is on the chessboard.
+    // Always pass layers = 0 as it is a recursive variable
     bool valid_move(Piece *p, byte new_x, byte new_y, byte layers){
 
         byte curr_x = p->X;
@@ -135,14 +146,12 @@ class Board {
         int inc_x = new_x - curr_x;
         int inc_y = new_y - curr_y;
 
-        Serial.print(String(curr_x) + String(curr_y) + ' ');
-
         // Check if the movement is a proper diagonal,
         // horizontal, or vertical movement. Knights are exempt
         if(((abs(inc_x) > abs(inc_y) && inc_y != 0)  || 
             (abs(inc_x) < abs(inc_y) && inc_x != 0)) &&
             p->name != Knight){
-               Serial.println("Invalid slope");
+               //Serial.println("Invalid slope");
                return false;
         }
 
@@ -154,7 +163,7 @@ class Board {
 
         // Not moving is invalid
         if(!inc_x && !inc_y){
-            Serial.println("Piece must move at least 1 square");
+            //Serial.println("Piece must move at least 1 square");
             return false;
         }
 
@@ -168,7 +177,7 @@ class Board {
         // Each Piece has a set of possible moves.
         switch(p->name){
             case(Pawn):
-                Serial.println("Entered pawn case");
+                //Serial.println("Entered pawn case");
                 
                 // no_collisions only checks closest square so we need to
                 // check if new is occupied by anything since pawns can
@@ -177,7 +186,7 @@ class Board {
                 // Moving one square forward. Recall Black = 1, White = -1
                 if(inc_x == 0 && new_y - curr_y == p->color &&
                    !occupied(new_x, new_y)){
-                    Serial.println("One square forward movement");
+                    //Serial.println("One square forward movement");
                     break;
                 }
 
@@ -187,7 +196,7 @@ class Board {
                 if(inc_x == 0 && (new_y - curr_y) == 2*p->color && 
                    curr_y == (p->color == Black ? 1 : 6) &&
                    !occupied(new_x, new_y) && no_col){
-                    Serial.println("Two square forward movement");
+                    //Serial.println("Two square forward movement");
                     break;
                 }
 
@@ -196,64 +205,64 @@ class Board {
                     // (Next section will catch the color)
                 if(abs(inc_x) == 1 && inc_y == p->color &&
                    occupied(new_x, new_y)){
-                    Serial.println("Diagonal take movement");
+                    //Serial.println("Diagonal take movement");
                     break;
                 }
 
-                Serial.println("Invalid pawn movement");
+                //Serial.println("Invalid pawn movement");
                 return false;
                 
             case(Rook):
-                Serial.println("Entered rook case");
+                //Serial.println("Entered rook case");
 
                 // If x and y inc are both non zero, it's invalid (diagonal)
                 if((inc_x && inc_y) || !no_col) {
-                    Serial.println("Invalid rook movement");
+                    //Serial.println("Invalid rook movement");
                     return false;
                 }
                 break;
 
             case(Knight):
-                Serial.println("Entered knight case");
+                //Serial.println("Entered knight case");
 
                 // Knights must move at least 3 squares (component wise)
                 // and neither component can be 0 (catches movement
                 // 3 squares horizontal or vertical)
                 if(abs(curr_x - new_x) + abs(curr_y - new_y) != 3 || 
                    curr_x == new_x || curr_y == new_y){
-                    Serial.println("Invalid knight movement");
+                    //Serial.println("Invalid knight movement");
                     return false;
                 }
                 break;
 
             case(Bishop):
-                Serial.println("Entered bishop case");
+                //Serial.println("Entered bishop case");
 
                 // Invalid if x and y inc are diff (not diagonal)
                 if(abs(inc_x) - abs(inc_y) || !no_col) {
-                    Serial.println("Invalid bishop movement");
+                    //Serial.println("Invalid bishop movement");
                     return false;
                 }
                 break;
 
             case(Queen):
-                Serial.println("Entered queen case");
+                //Serial.println("Entered queen case");
 
                 // Queen can move anywhere as long as nothing is in the way
                 if(!no_col) {
-                    Serial.println("Invalid queen movement");
+                    //Serial.println("Invalid queen movement");
                     return false;
                 }
                 break;
 
             case(King):
-                Serial.println("Entered king case");
+                //Serial.println("Entered king case");
 
                 // King can move anywhere as long as movement is not 
                 // more than 1 square
                 // Checking collisions is handled outside switch block
                 if(abs(new_x - curr_x) > 1 || abs(new_y - curr_y) > 1){
-                    Serial.println("Invalid king movement");
+                    //Serial.println("Invalid king movement");
                     return false;
                 }
                 break;
@@ -264,7 +273,7 @@ class Board {
 
         // Can't take your own color
         if(tmp->color == p->color){
-            Serial.println("Cannot take own color");
+            //Serial.println("Cannot take own color");
             return false;
         }
 
@@ -274,7 +283,7 @@ class Board {
         // Move, test check, then unmove
         move(p, new_x, new_y, false);
         if(layers < 1 && check(tmp->X, tmp->Y, layers)){
-            Serial.println("Move puts mover in check");
+            //Serial.println("Move puts mover in check");
             move(p, curr_x, curr_y, false);
             return false;
         }
@@ -292,7 +301,7 @@ class Board {
 
         // "Take" the piece if required and move it off the board
         if(occ && take){
-            Serial.println("Took opponents piece at: " + String(occ->X) + String(occ->Y));
+            //Serial.println("Took opponents piece at: " + String(occ->X) + String(occ->Y));
             occ->X = 100;
             occ->Y = 100;
         }
@@ -302,7 +311,6 @@ class Board {
         p->Y = new_y;
     }
     
-
     // Returns a pointer to any piece that occupies the specified square
     // Else return nullptr
     Piece *occupied(byte x, byte y){
@@ -315,6 +323,26 @@ class Board {
             p++;
         }
         return nullptr;
+    }
+
+    // Add up the values of all the pieces 
+    // score > 0 means c is winning
+    // score < 0 means c is losing
+    int score_board(Color c){
+        int score = 0;
+        Piece *p = &pieces.pieces[0];
+
+        for(byte i = 0; i < 32; i++){
+
+            // Check if piece is on the board
+            // Recall Black = 1, White = -1
+            if(p->X < 32)
+                score += int(p->name) * p->color * c;
+
+            p++;
+        }
+
+        return score;
     }
 
     private:
@@ -335,12 +363,12 @@ class Board {
             curr_y += inc_y*(curr_y != new_y);
 
             if(occupied(curr_x, curr_y)){
-                Serial.println("Piece in the way at: " + String(curr_x) + String(curr_y));
+                //Serial.println("Piece in the way at: " + String(curr_x) + String(curr_y));
                 return false;
             }
         }
 
-        Serial.println("Linear move has no collisions");
+        //Serial.println("Linear move has no collisions");
         return true;
     }
 
@@ -353,7 +381,7 @@ class Board {
 
         for(int i = 0; i < 32; i++){
             if(valid_move(p, king_x, king_y, layers + 1)){ 
-                Serial.println("Check");
+                //Serial.println("Check");
                 return true;
             }
             p++;
@@ -369,7 +397,7 @@ class Board {
 
         while(k->name != King || k->color != c)
             k++;
-        Serial.println("Found king at: " + String(k->X) + String(k->Y)); 
+        //Serial.println("Found king at: " + String(k->X) + String(k->Y)); 
 
         return k;
     }
@@ -378,78 +406,318 @@ class Board {
 class AI {
     public:
 
-        byte lvl;
-        Color c;
-        Board *b;
+    Color c;
+    byte diff;
+    Board *b;
 
-        AI(Color color, byte difficulty_lvl, Board *board){
-            lvl = difficulty_lvl;
-            c = color;
-            b = board;
+    AI(Color color, byte difficulty, Board *brd){
+        c = color;
+        diff = difficulty;
+        b = brd;
+    }
+
+    // Minimax algo adapted from geeksforgeeks.org tic-tac-toe example
+    // https://www.geeksforgeeks.org/minimax-algorithm-
+    // in-game-theory-set-3-tic-tac-toe-ai-finding-optimal-move/
+    int minimax(Board brd, Color turn_color, byte depth){
+
+        // TODO Function that checks for stalemate or checkmate
+        //if(b.terminal_state())
+            //return b.score_board();
+        // TODO algo needs to use .score_board() at some point or this will never work
+        // Limit the depth of recursion to the AI difficulty
+        if(depth >= diff){
+            Serial.println("Max depth. Score: " + String(brd.score_board(turn_color)));
+            return brd.score_board(turn_color);
         }
 
-        void make_move(){
+        Piece *p = &brd.pieces.pieces[0];
 
-        }
+        // best < 0 if turn_color == ai's color
+        // best > 0 else
+        int best = c*turn_color*-INT16_MAX;
+            
 
-        // Add up the values of all the pieces 
-        // score > 0 means c(olor) is winning
-        // score < 0 means c(olor) is losing
-        int score_board(){
-            int score = 0;
-            Piece *p = &b->pieces.pieces[0];
+        // Loop through all the pieces on the board
+        for(byte i = 0; i < 32; i++){
 
-            for(byte i = 0; i < 32; i++){
+            // Loop through every square on the board and move to it
+            for(byte x = 0; x < 8; x++){
+                for(byte y = 0; y < 8; y++){
 
-                // Check if piece is on the board
-                // Recall Black = 1, White = -1
-                if(p->X < 32)
-                    score += int(p->name) * p->color * c;
+                    // Only move if it is a legal move
+                    if(brd.valid_move(p, x, y, 0) && p->color == turn_color){
+                        
+                        // Make a copy of the board we can revert to
+                        // TODO this is expensive, but there is no
+                        // way around it because if a piece is taken 
+                        // it isn't possible to reverse
+                        Board orig_b = brd;
 
-                p++;
+                        // Move the piece
+                        brd.move(p, x, y, true);
+
+                        // Recursively call minimax, updating best as needed
+                        // inverting the Color due to changing turns
+                        int mm = minimax(brd, Color(!c), depth + 1);
+                        
+                        // Update best
+                        if(turn_color == c) // maximizer
+                            best = mm > best ? mm : best;
+                        else                // minimizer
+                            best = mm < best ? mm : best;
+                            
+                        // Revert the board when finished
+                        brd = orig_b;
+                    }
+                }
             }
-
-            return score;
+            p++;
         }
-};
+        return best;
+    }
+
+    void make_best_move(Board brd){
+
+        int best_val = -20000;
+        // Location of the best square to move to 
+        byte best_x = 0;
+        byte best_y = 0;
+
+        // Location of the best piece to move
+        byte p_x = 0;
+        byte p_y = 0;
+
+        Piece *p = &brd.pieces.pieces[0];
+
+        // Loop through all the pieces on the board
+        for(byte i = 0; i < 32; i++){
+
+            // Loop through every square on the board and move to it
+            for(byte x = 0; x < 8; x++){
+                for(byte y = 0; y < 8; y++){
+
+                    // Only move if it is a legal move
+                    if(brd.valid_move(p, x, y, 0) && p->color == c){
+
+                        Serial.println("x: " + String(x) + "\ty: " + String(y) + "\ti: " + String(i));
+
+                        // Make a copy of the states we can revert to
+                        Board orig_b = brd;
+                        byte orig_p_x = p->X;
+                        byte orig_p_y = p->Y;
+
+                        // Move the piece
+                        brd.move(p, x, y, true);
+
+                        // Recursively call minimax, updating best as needed
+                        int move_val = minimax(brd, c, 0);
+                        Serial.println("move_val: " + String(move_val));
+                        
+                        // Revert the board when finished
+                        brd = orig_b;
+
+                        // Update vars if a better move was found
+                        if(move_val > best_val){
+                            best_val = move_val;
+                            best_x = x;
+                            best_y = y;
+
+                            p_x = orig_p_x;
+                            p_y = orig_p_y;
+
+                            Serial.println("p_x: " + String(p_x) + "\tp_y: " + String(p_y) + "\n");
+                        }
+                    }
+                }
+            }
+            p++;
+        }
+
+        Serial.print("\nThe best move is: " + String(p_x) + String(p_y));
+        Serial.println(" -> " + String(best_x) + String(best_y));
+        Serial.println("With a value of: " + String(best_val) + "\n\n");
+
+        // Make the move that was found by the algo
+        Piece *move = b->occupied(p_x, p_y);
+        b->move(move, best_x, best_y, true);
+
+    }
+};  
 
 Board b;
 AI beth(White, 1, &b);
 
+
+// ****** ARDUINO METHODS ****** //
+
+// Waits until the user presses two buttons to select a piece
+// and two buttons to move the piece
+// Each time buttons must both be pressed in order to move on to the next step
+
+// 1500ms delay is added between pairs of buttons to allow for debouncing
+// TODO This should be changed so it checks the falling edge rather than just waiting
+Move get_move(){
+
+    set_PINMODE(true);
+
+    byte btn;
+    Move m;
+    
+    // Init to 255. Will be set to between 0-7 below
+    for(byte i = 0; i < 4; i++)
+        m.pos[i] = 255;
+
+    // First loop selects piece
+    // Second selects where piece will move
+    // i offsets m.pos index
+    for(byte i = 0; i < 3; i += 2){ 
+        do{
+            // X
+            for(byte j = 0; j < 8; j++){
+                if(digitalRead(btn_indices[j]) == LOW)
+                    m.pos[0 + i] = j; 
+            }
+
+            // Y
+            for(byte j = 8; j < 14; j++){
+                if(digitalRead(btn_indices[j]) == LOW)
+                    m.pos[1 + i] = j - 8;   
+            }
+
+            // Y analog pins 6 and 7 cannot be used as digital inputs
+            // so we have to use analogRead instead
+            for(byte j = 14; j < 16; j++){
+                if(j > 13 && analogRead(btn_indices[j]) < 100)
+                    m.pos[1 + i] = j - 8;
+            }
+            
+        }while(m.pos[0 + i] == 255 || m.pos[1 + i] == 255); // Repeat until two buttons pressed
+        delay(1500);
+    } 
+
+    return m;
+}
+
+// Lights LEDs to select a piece, and show where to move it
+// Used by the AI
+void do_move_LEDs(Move m){
+
+    // Due to the wiring, unless the LED is being lit,
+    // it must be set to INPUT_PULLUP
+    set_PINMODE(true);
+
+    byte curr_x = btn_indices[m.pos[0]];
+    byte curr_y = btn_indices[m.pos[1 + 8]];
+    byte new_x = btn_indices[m.pos[2]];
+    byte new_y = btn_indices[m.pos[3 + 8]];
+
+    for(byte i = 0; i < 3; i++){
+
+        // Curr
+        pinMode(curr_x, OUTPUT);
+        pinMode(curr_y, OUTPUT);
+        digitalWrite(curr_x, LOW);
+        digitalWrite(curr_y, LOW);
+        delay(1000);
+        digitalWrite(curr_x, HIGH);
+        digitalWrite(curr_y, HIGH);
+        pinMode(curr_x, INPUT_PULLUP);
+        pinMode(curr_y, INPUT_PULLUP);
+
+        // New
+        pinMode(new_x, OUTPUT);
+        pinMode(new_y, OUTPUT);
+        digitalWrite(new_x, LOW);
+        digitalWrite(new_y, LOW);
+        delay(1000);
+        digitalWrite(new_x, HIGH);
+        digitalWrite(new_y, HIGH);
+        pinMode(new_x, INPUT_PULLUP);
+        pinMode(new_y, INPUT_PULLUP);
+    }
+}
+
+// Sets the state of every button IO pin to INPUT_PULLUP or OUTPUT
+// true denotes INPUT_PULLUP, false, denotes OUTPUT
+// OUTPUT to control LEDs
+// INPUT_PULLUP to read buttons
+void set_PINMODE(bool pinmode){
+
+  // INPUT_PULLUP
+  if(pinmode){
+    for(byte i = 0; i < 16; i++)
+      pinMode(btn_indices[i], INPUT_PULLUP);
+  }
+
+  // OUTPUT
+  else{
+    for(byte i = 0; i < 16; i++)
+      pinMode(btn_indices[i], OUTPUT);
+  }
+}
+
+
 void setup(){
     Serial.begin(115200);
+    b.print_board();
 }
 
 void loop(){
-    delay(1000);
+
+    set_PINMODE(true);
+
+    // Get a legal move from the player
+    Move m;
+    Piece *p;
+    do{
+        m = get_move();
+        p = b.occupied(m.pos[0], m.pos[1]);
+    }while(!b.valid_move(p, m.pos[2], m.pos[3], 0));
+
+    // Make the player's move
+    b.move(p, m.pos[2], m.pos[3], true);
+
+
+    // Make the AI's move
+    //beth.make_best_move(b);
+    //do_move_LEDs(m);
+
     b.print_board();
-
-    String s; // For incoming serial data
-
-    // Make moves by keyboard CTRL + S + P to send move
-    while(true){
-        if (Serial.available() > 0) {
-
-            // Read the incoming bytes:
-            s = Serial.readString();
-            
-            int int_string[4];
-
-            // Print the move
-            for (int i = 0; i < 4; i++){
-                int_string[i] = s[i] - '0';
-                Serial.print(int_string[i]);
-            }
-            Serial.println();
-            
-            Piece *p = b.occupied(int_string[0],int_string[1]);
-
-            // Make the move
-            if(b.valid_move(p,int_string[2],int_string[3], 0))
-               b.move(p, int_string[2],int_string[3], true);
-            
-            b.print_board();
-            Serial.println("Score: " + String(beth.score_board()) + "\n\n\n");
-        }
-    }
 }
+
+
+
+//    delay(1000);
+//    b.print_board();
+//
+//    String s; // For incoming serial data
+//
+//    // Make moves by keyboard CTRL + S + P to send move
+//    while(true){
+//        if (Serial.available() > 0) {
+//
+//            // Read the incoming bytes:
+//            s = Serial.readString();
+//            
+//            int int_string[4];
+//
+//            // Print the move
+//            for (int i = 0; i < 4; i++){
+//                int_string[i] = s[i] - '0';
+//                Serial.print(int_string[i]);
+//            }
+//            Serial.println();
+//            
+//            Piece *p = b.occupied(int_string[0],int_string[1]);
+//
+//            // Make the move
+//            if(b.valid_move(p,int_string[2],int_string[3], 0))
+//               b.move(p, int_string[2],int_string[3], true);
+//            
+//            b.print_board();
+//
+//            beth.make_best_move(b);
+//            b.print_board();
+//        }
+//    }
