@@ -13,13 +13,98 @@ char display_chars_black[10] { 'k', 'p', ' ', 'h', 'b', 'r', ' ', ' ', ' ', 'q' 
 
 // Map 0-15 to the pin names of arduino
 // [0,7] stores x pins, [8,15] stores y pins
-byte btn_indices[16] = { 2, 3, 4, 5, 6, 7, 8, 9, A0, A1, A2, A3, A4, A5, A6, A7 };
+// A6 and A7 are not used because they cannot function as outputs
+byte btn_indices[16] = { 2, 3, 4, 5, 6, 7, 8, 9, A0, A1, A2, A3, A4, A5, 12, 13 };
 
 // struct that stores a move
 // Array is in from { curr_x, curr_y, new_x, new_y }
 typedef struct{
     byte pos[4];
 }Move;
+
+// ****** ARDUINO METHODS ****** //
+
+// Waits until the user presses two buttons to select a piece
+// and two buttons to move the piece
+// 1500ms delay is added between pairs of buttons to allow for debouncing
+// Buttons don't have to be pressed at the same time
+// TODO This should be changed so it checks the falling edge rather than delay
+Move get_move(){
+
+    set_PULLUP();
+
+    Move m;
+    
+    // Init to 255. Will be set to between 0-7 below
+    for(byte i = 0; i < 4; i++)
+        m.pos[i] = 255;
+
+    // First loop selects piece
+    // Second selects where piece will move
+    // i offsets m.pos index
+    for(byte i = 0; i < 3; i += 2){ 
+        do{
+            // X
+            for(byte j = 0; j < 8; j++){
+                if(digitalRead(btn_indices[j]) == LOW)
+                    m.pos[0 + i] = j; 
+            }
+
+            // Y
+            // TODO change j < 14 to j < 16 once those pins are wired properly
+            for(byte j = 8; j < 14; j++){
+                if(digitalRead(btn_indices[j]) == LOW)
+                    m.pos[1 + i] = j - 8;   
+            }
+            
+        }while(m.pos[0 + i] == 255 || m.pos[1 + i] == 255); // Repeat until two buttons pressed
+        delay(1500);
+    } 
+
+    return m;
+}
+
+// Blinks led for specifed time
+void blink_LED_pair(byte pin1, byte pin2, int on, int off){
+    pinMode(pin1, OUTPUT);
+    pinMode(pin2, OUTPUT);
+    digitalWrite(pin1, LOW);
+    digitalWrite(pin2, LOW);
+    delay(on);
+    digitalWrite(pin1, HIGH);
+    digitalWrite(pin2, HIGH);
+    delay(off);
+    pinMode(pin1, INPUT_PULLUP);
+    pinMode(pin2, INPUT_PULLUP);
+}
+
+// Lights LEDs to select a piece, and show where to move it
+// Used by the AI
+void do_move_LEDs(Move m){
+
+    // Due to the wiring, unless the LED is being lit,
+    // it must be set to INPUT_PULLUP
+    set_PULLUP();
+    int on = 1000;
+    int off = 0;
+
+    for(byte i = 0; i < 3; i++){
+        blink_LED_pair(btn_indices[m.pos[0]], btn_indices[m.pos[1] + 8], on, off);
+        blink_LED_pair(btn_indices[m.pos[2]], btn_indices[m.pos[3] + 8], on, off);
+    }
+}
+
+// Sets the pinMode of every button IO pin to INPUT_PULLUP
+void set_PULLUP(){
+    // i < 14 because 15 and 16 reference A6 and A7 which do
+    // not have internal pullup resistors
+    // Instead, external 20K pullups are connected to them
+    for(byte i = 0; i < 14; i++)
+      pinMode(btn_indices[i], INPUT_PULLUP);
+}
+
+
+// ****** CHESSBOARD METHODS ****** //
 
 class Piece {
     public:
@@ -417,14 +502,14 @@ class AI {
     }
 
     // Minimax algo adapted from geeksforgeeks.org tic-tac-toe example
-    // https://www.geeksforgeeks.org/minimax-algorithm-
-    // in-game-theory-set-3-tic-tac-toe-ai-finding-optimal-move/
+    // https://www.geeksforgeeks.org/minimax-algorithm-in-game-theory-set-3-tic-tac-toe-ai-finding-optimal-move/
     int minimax(Board brd, Color turn_color, byte depth){
 
         // TODO Function that checks for stalemate or checkmate
         //if(b.terminal_state())
             //return b.score_board();
         // TODO algo needs to use .score_board() at some point or this will never work
+
         // Limit the depth of recursion to the AI difficulty
         if(depth >= diff){
             Serial.println("Max depth. Score: " + String(brd.score_board(turn_color)));
@@ -480,14 +565,9 @@ class AI {
     void make_best_move(Board brd){
 
         int best_val = -20000;
-        // Location of the best square to move to 
-        byte best_x = 0;
-        byte best_y = 0;
 
-        // Location of the best piece to move
-        byte p_x = 0;
-        byte p_y = 0;
-
+        // Storage for best move
+        Move m;
         Piece *p = &brd.pieces.pieces[0];
 
         // Loop through all the pieces on the board
@@ -520,13 +600,14 @@ class AI {
                         // Update vars if a better move was found
                         if(move_val > best_val){
                             best_val = move_val;
-                            best_x = x;
-                            best_y = y;
 
-                            p_x = orig_p_x;
-                            p_y = orig_p_y;
+                            m.pos[0] = orig_p_x;
+                            m.pos[1] = orig_p_y;
 
-                            Serial.println("p_x: " + String(p_x) + "\tp_y: " + String(p_y) + "\n");
+                            m.pos[2] = x;
+                            m.pos[3] = y;
+
+                            Serial.println("p_x: " + String(m.pos[0]) + "\tp_y: " + String(m.pos[1]) + "\n");
                         }
                     }
                 }
@@ -534,14 +615,15 @@ class AI {
             p++;
         }
 
-        Serial.print("\nThe best move is: " + String(p_x) + String(p_y));
-        Serial.println(" -> " + String(best_x) + String(best_y));
+        Serial.print("\nThe best move is: " + String(m.pos[0]) + String(m.pos[1]));
+        Serial.println(" -> " + String(m.pos[2]) + String(m.pos[3]));
         Serial.println("With a value of: " + String(best_val) + "\n\n");
 
         // Make the move that was found by the algo
-        Piece *move = b->occupied(p_x, p_y);
-        b->move(move, best_x, best_y, true);
+        Piece *move = b->occupied(m.pos[0], m.pos[1]);
+        b->move(move, m.pos[2], m.pos[3], true);
 
+        do_move_LEDs(m);
     }
 };  
 
@@ -549,113 +631,6 @@ Board b;
 AI beth(White, 1, &b);
 
 
-// ****** ARDUINO METHODS ****** //
-
-// Waits until the user presses two buttons to select a piece
-// and two buttons to move the piece
-// Each time buttons must both be pressed in order to move on to the next step
-
-// 1500ms delay is added between pairs of buttons to allow for debouncing
-// TODO This should be changed so it checks the falling edge rather than just waiting
-Move get_move(){
-
-    set_PINMODE(true);
-
-    byte btn;
-    Move m;
-    
-    // Init to 255. Will be set to between 0-7 below
-    for(byte i = 0; i < 4; i++)
-        m.pos[i] = 255;
-
-    // First loop selects piece
-    // Second selects where piece will move
-    // i offsets m.pos index
-    for(byte i = 0; i < 3; i += 2){ 
-        do{
-            // X
-            for(byte j = 0; j < 8; j++){
-                if(digitalRead(btn_indices[j]) == LOW)
-                    m.pos[0 + i] = j; 
-            }
-
-            // Y
-            for(byte j = 8; j < 14; j++){
-                if(digitalRead(btn_indices[j]) == LOW)
-                    m.pos[1 + i] = j - 8;   
-            }
-
-            // Y analog pins 6 and 7 cannot be used as digital inputs
-            // so we have to use analogRead instead
-            for(byte j = 14; j < 16; j++){
-                if(j > 13 && analogRead(btn_indices[j]) < 100)
-                    m.pos[1 + i] = j - 8;
-            }
-            
-        }while(m.pos[0 + i] == 255 || m.pos[1 + i] == 255); // Repeat until two buttons pressed
-        delay(1500);
-    } 
-
-    return m;
-}
-
-// Lights LEDs to select a piece, and show where to move it
-// Used by the AI
-void do_move_LEDs(Move m){
-
-    // Due to the wiring, unless the LED is being lit,
-    // it must be set to INPUT_PULLUP
-    set_PINMODE(true);
-
-    byte curr_x = btn_indices[m.pos[0]];
-    byte curr_y = btn_indices[m.pos[1 + 8]];
-    byte new_x = btn_indices[m.pos[2]];
-    byte new_y = btn_indices[m.pos[3 + 8]];
-
-    for(byte i = 0; i < 3; i++){
-
-        // Curr
-        pinMode(curr_x, OUTPUT);
-        pinMode(curr_y, OUTPUT);
-        digitalWrite(curr_x, LOW);
-        digitalWrite(curr_y, LOW);
-        delay(1000);
-        digitalWrite(curr_x, HIGH);
-        digitalWrite(curr_y, HIGH);
-        pinMode(curr_x, INPUT_PULLUP);
-        pinMode(curr_y, INPUT_PULLUP);
-
-        // New
-        pinMode(new_x, OUTPUT);
-        pinMode(new_y, OUTPUT);
-        digitalWrite(new_x, LOW);
-        digitalWrite(new_y, LOW);
-        delay(1000);
-        digitalWrite(new_x, HIGH);
-        digitalWrite(new_y, HIGH);
-        pinMode(new_x, INPUT_PULLUP);
-        pinMode(new_y, INPUT_PULLUP);
-    }
-}
-
-// Sets the state of every button IO pin to INPUT_PULLUP or OUTPUT
-// true denotes INPUT_PULLUP, false, denotes OUTPUT
-// OUTPUT to control LEDs
-// INPUT_PULLUP to read buttons
-void set_PINMODE(bool pinmode){
-
-  // INPUT_PULLUP
-  if(pinmode){
-    for(byte i = 0; i < 16; i++)
-      pinMode(btn_indices[i], INPUT_PULLUP);
-  }
-
-  // OUTPUT
-  else{
-    for(byte i = 0; i < 16; i++)
-      pinMode(btn_indices[i], OUTPUT);
-  }
-}
 
 
 void setup(){
@@ -665,7 +640,7 @@ void setup(){
 
 void loop(){
 
-    set_PINMODE(true);
+    set_PULLUP();
 
     // Get a legal move from the player
     Move m;
@@ -677,11 +652,10 @@ void loop(){
 
     // Make the player's move
     b.move(p, m.pos[2], m.pos[3], true);
-
+    do_move_LEDs(m);
 
     // Make the AI's move
-    //beth.make_best_move(b);
-    //do_move_LEDs(m);
+    beth.make_best_move(b);
 
     b.print_board();
 }
