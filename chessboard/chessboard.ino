@@ -80,19 +80,16 @@ void blink_LED_pair(byte pin1, byte pin2, int on, int off){
 }
 
 // Lights LEDs to select a piece, and show where to move it
-// Used by the AI
 void do_move_LEDs(Move m){
 
     // Due to the wiring, unless the LED is being lit,
     // it must be set to INPUT_PULLUP
     set_PULLUP();
-    int on = 1000;
+    int on = 3000;
     int off = 0;
 
-    for(byte i = 0; i < 3; i++){
-        blink_LED_pair(btn_indices[m.pos[0]], btn_indices[m.pos[1] + 8], on, off);
-        blink_LED_pair(btn_indices[m.pos[2]], btn_indices[m.pos[3] + 8], on, off);
-    }
+    blink_LED_pair(btn_indices[m.pos[0]], btn_indices[m.pos[1] + 8], on, off);
+    blink_LED_pair(btn_indices[m.pos[2]], btn_indices[m.pos[3] + 8], on, off);
 }
 
 // Sets the pinMode of every button IO pin to INPUT_PULLUP
@@ -368,26 +365,40 @@ class Board {
         tmp = get_king(p->color);
 
         // Move, test check, then unmove
-        move(p, new_x, new_y, false);
+        Piece *taken = move(p, new_x, new_y);
+
         if(layers < 1 && check(tmp->X, tmp->Y, layers)){
             //Serial.println("Move puts mover in check");
-            move(p, curr_x, curr_y, false);
+
+            // Illegal move. Move the piece(s) back
+            move(p, curr_x, curr_y);
+            move(taken, new_x, new_y);
             return false;
         }
-        move(p, curr_x, curr_y, false);
+
+        move(p, curr_x, curr_y);
+
+        // If we made it here, the move is valid!
         return true;
     }
 
-    // Moves the piece and take opponent's piece if specifed
+    // Moves the piece and take opponent's piece if specifed,
+    // and returns a pointer to the take piece (so it can be unmoved)
+
     // take param only exists for when checking check as we don't
     // actually want to take pieces.
-    void move(Piece *p, byte new_x, byte new_y, bool take){
+    Piece* move(Piece *p, byte new_x, byte new_y){
+        
+        // Occasionally when testing check in valid_move()
+        // a nullptr will be passed here. In that case do nothing
+        if(p == nullptr)
+            return nullptr;
 
         // Check for piece in the target square
         Piece *occ = occupied(new_x, new_y);
 
-        // "Take" the piece if required and move it off the board
-        if(occ && take){
+        // "Take" the piece if it exists and move it off the board
+        if(occ){
             //Serial.println("Took opponents piece at: " + String(occ->X) + String(occ->Y));
             occ->X = 100;
             occ->Y = 100;
@@ -396,6 +407,11 @@ class Board {
         // Move the piece to the new location
         p->X = new_x;
         p->Y = new_y;
+
+        // Return the pointer to the taken piece. This lets the user "unmove"
+        // the piece if needed. This is esp important in the AI where many
+        // moves are made and need to be reverted
+        return occ;
     }
     
     // Returns a pointer to any piece that occupies the specified square
@@ -513,11 +529,8 @@ class AI {
         */
 
         // Also need to check here for stalemate / checkmate
-        if(depth == 0){
-            //Serial.println("Heuristic value: " + String(brd.score_board()));
-            //Serial.println("   Return value: " + String(clr*brd.score_board()));
+        if(depth == 0)
             return clr*brd.score_board();
-        }
 
         int value = INT16_MIN;
 
@@ -539,16 +552,23 @@ class AI {
                 for(byte y = 0; y < 8; y++){
 
                     if(brd.valid_move(p, x, y, 0)){
-                        // TODO make it so a piece can be "unmoved" rather than copying brd
-                        Board cpy = brd; 
-                        brd.move(p, x, y, true);
+                        byte orig_x = p->X;
+                        byte orig_y = p->Y;
+
+                        // Pointer to any piece taken when moving p
+                        Piece *taken = brd.move(p, x, y);
+
                         value = max(value, negamax(brd, depth - 1, Color(-clr)));
-                        brd = cpy;
+
+                        // Unmove p
+                        brd.move(p, orig_x, orig_y);
+
+                        // Move any Piece p took back to where it came
+                        brd.move(taken, x, y);
                     }
                 }
             }
         }
-        //Serial.println("At depth: " + String(depth) + " the max val is: " + String(-value));
         return value;
     }
 
@@ -575,22 +595,35 @@ class AI {
                         Board cpy = brd; 
                         byte orig_x = p->X;
                         byte orig_y = p->Y;
-                        brd.move(p, x, y, true);
 
+                        // Pointer to any piece taken when moving p
+                        Piece *taken = brd.move(p, x, y);
+
+                        // Call negamax to get the value of this initial move
                         int ngm = negamax(brd, depth, Color(-c));
-                        if(ngm > value){
+
+                        // Update best if a equal or better move was found
+                        // Here we use millis to add some "randomness"
+                        // if two moves of the same value are found
+                        if(ngm > value || (ngm == value && millis() % 5 == 0)){
                             value = ngm;
                             best.pos[0] = orig_x;
                             best.pos[1] = orig_y;
                             best.pos[2] = x;
                             best.pos[3] = y;
+
+                            // Debugging
                             Serial.print("New best move: ");
                             Serial.println("value: " + String(value) + " ngm: " + String(ngm));
                             for(byte i = 0; i < 4; i++)
                                 Serial.print(best.pos[i]);
                             Serial.println();
                         }
-                        brd = cpy;
+                        // Unmove p
+                        brd.move(p, orig_x, orig_y);
+
+                        // Move any Piece p took back to where it came
+                        brd.move(taken, x, y);
                     }
                 }
             }
@@ -611,201 +644,61 @@ void setup(){
 
 void loop(){
 
-    //set_PULLUP();
+    set_PULLUP();
 
-    //// Get a legal move from the player
-    //Move m;
-    //Piece *p;
-    //do{
-        //m = get_move();
-        //p = b.occupied(m.pos[0], m.pos[1]);
-    //}while(!b.valid_move(p, m.pos[2], m.pos[3], 0));
+    // Get a legal move from the player
+    Move m;
+    Piece *p;
+    do{
+        m = get_move();
+        p = b.occupied(m.pos[0], m.pos[1]);
+    }while(!b.valid_move(p, m.pos[2], m.pos[3], 0));
 
-    //// Make the player's move
-    //b.move(p, m.pos[2], m.pos[3], true);
-    //do_move_LEDs(m);
+    // Make the player's move
+    b.move(p, m.pos[2], m.pos[3]);
+    do_move_LEDs(m);
 
-    //// Make the AI's move
-    //beth.negamax(b, 2, beth.c);
+    Serial.println("\n\nMaking Beths move...");
+    Move beths_move = beth.get_best_move(b, 1);
+    p = b.occupied(beths_move.pos[0], beths_move.pos[1]);
+    b.move(p, beths_move.pos[2], beths_move.pos[3]);
+    do_move_LEDs(beths_move);
 
-    //b.print_board();
+    b.print_board();
 
-    String s; // For incoming serial data
+    //String s; // For incoming serial data
 
-    // Make moves by keyboard CTRL + S + P to send move
-    while(true){
-        if (Serial.available() > 0) {
+    //// Make moves by keyboard CTRL + S + P to send move
+    //while(true){
+        //if (Serial.available() > 0) {
 
-            // Read the incoming bytes:
-            s = Serial.readString();
+            //// Read the incoming bytes:
+            //s = Serial.readString();
             
-            int int_string[4];
+            //int int_string[4];
 
-            // Print the move
-            for (int i = 0; i < 4; i++){
-                int_string[i] = s[i] - '0';
-                Serial.print(int_string[i]);
-            }
-            Serial.println();
+            //// Print the move
+            //for (int i = 0; i < 4; i++){
+                //int_string[i] = s[i] - '0';
+                //Serial.print(int_string[i]);
+            //}
+            //Serial.println();
             
-            Piece *p = b.occupied(int_string[0],int_string[1]);
+            //Piece *p = b.occupied(int_string[0],int_string[1]);
 
-            // Make the move
-            if(b.valid_move(p,int_string[2],int_string[3], 0))
-               b.move(p, int_string[2],int_string[3], true);
+            //// Make the move
+            //if(b.valid_move(p,int_string[2],int_string[3], 0))
+               //b.move(p, int_string[2],int_string[3], true);
             
-            b.print_board();
+            //b.print_board();
 
-            Serial.println("\n\nMaking Beths move...");
+            //Serial.println("\n\nMaking Beths move...");
 
-            Move beths_move = beth.get_best_move(b, 2);
-            p = b.occupied(beths_move.pos[0], beths_move.pos[1]);
-            b.move(p, beths_move.pos[2], beths_move.pos[3], true);
+            //Move beths_move = beth.get_best_move(b, 2);
+            //p = b.occupied(beths_move.pos[0], beths_move.pos[1]);
+            //b.move(p, beths_move.pos[2], beths_move.pos[3], true);
 
-            b.print_board();
-        }
-    }
+            //b.print_board();
+        //}
+    //}
 }
-
-/*
-    // Minimax algo adapted from geeksforgeeks.org tic-tac-toe example
-    // https://www.geeksforgeeks.org/minimax-algorithm-in-game-theory-set-3-tic-tac-toe-ai-finding-optimal-move/
-    int minimax(Board brd, Color turn_color, byte depth){
-
-        // TODO Function that checks for stalemate or checkmate
-        //if(b.terminal_state())
-            //return b.score_board();
-
-        // Limit the depth of recursion to the AI difficulty
-        if(depth >= diff){
-            //Serial.println("Max depth. Score: " + String(brd.score_board(turn_color)));
-            //brd.print_board();
-            return brd.score_board(turn_color);
-        }
-
-        Piece *p = &brd.pieces.pieces[0];
-
-        // best < 0 if turn_color == ai's color
-        // best > 0 else
-        int best = c*turn_color*-INT16_MAX;
-            
-
-        // Loop through all the pieces of turn_color on the board
-            // turn_color == White -> i = 16, till i = 31
-            // turn_color == Black -> i =  0, till i = 15
-        // Recall in Board's pieces array, [0,15] = Black, [16,31] = White
-        for(byte i = 16*(turn_color == White); i < 16 + 16*(turn_color == White); i++){
-
-            //Serial.println("i = " + String(i));
-
-            // Get a pointer to the first piece of Color c
-            p = &brd.pieces.pieces[i];
-
-            // Loop through every square on the board and move to it
-            for(byte x = 0; x < 8; x++){
-                for(byte y = 0; y < 8; y++){
-
-                    // Only move if it is a legal move
-                    if(brd.valid_move(p, x, y, 0)){
-                        // Make a copy of the board we can revert to
-                        // TODO this is expensive, but there is no
-                        // way around it because if a piece is taken 
-                        // it isn't possible to reverse
-                        Board orig_b = brd;
-
-                        // Move the piece
-                        brd.move(p, x, y, true);
-
-                        // Debugging stuff
-                        brd.print_board();
-                        Serial.println(brd.score_board(c));
-                        
-                        // Recursively call minimax, updating best as needed
-                        // inverting the Color due to changing turns
-                        int mm = minimax(brd, Color(-c), depth + 1);
-                        
-                        // Update best
-                        if(turn_color == c) // maximizer
-                            best = mm > best ? mm : best;
-                        else                // minimizer
-                            best = mm < best ? mm : best;
-                            
-                        // Revert the board when finished
-                        brd = orig_b;
-                    }
-                }
-            }
-        }
-        return best;
-    }
-
-    void make_best_move(Board brd){
-        int best_val = -20000;
-
-        // Storage for best move
-        Move m;
-        Piece *p = &brd.pieces.pieces[0];
-
-        // Loop through all the pieces of AI's color on the board
-            // c == White -> i = 16, till i = 31
-            // c == Black -> i =  0, till i = 15
-        // Recall in Board's pieces array, [0,15] = Black, [16,31] = White
-        for(byte i = 16*(c == White); i < 16 + 16*(c == White); i++){
-
-            // Get a pointer to the first piece of Color c
-            p = &brd.pieces.pieces[i];
-
-            // Loop through every square on the board and move to it
-            for(byte x = 0; x < 8; x++){
-                for(byte y = 0; y < 8; y++){
-
-                    // Only move if it is a legal move
-                    if(brd.valid_move(p, x, y, 0)){
-
-                        // Make a copy of the states we can revert to
-                        Board orig_b = brd;
-                        byte orig_p_x = p->X;
-                        byte orig_p_y = p->Y;
-
-                        // Move the piece
-                        brd.move(p, x, y, true);
-
-                        // Debugging stuff
-                        brd.print_board();
-                        Serial.println(brd.score_board(c));
-
-                        // Recursively call minimax, updating best as needed
-                        int move_val = minimax(brd, Color(-c), 0);
-                        //Serial.println("move_val: " + String(move_val));
-                        
-                        // Revert the board when finished
-                        brd = orig_b;
-
-                        // Update vars if a better move was found
-                        if(move_val > best_val){
-                            best_val = move_val;
-
-                            m.pos[0] = orig_p_x;
-                            m.pos[1] = orig_p_y;
-
-                            m.pos[2] = x;
-                            m.pos[3] = y;
-
-                            //Serial.println("p_x: " + String(m.pos[0]) + "\tp_y: " + String(m.pos[1]) + "\n");
-                        }
-                    }
-                }
-            }
-        }
-
-        Serial.print("\nThe best move is: " + String(m.pos[0]) + String(m.pos[1]));
-        Serial.println(" -> " + String(m.pos[2]) + String(m.pos[3]));
-        Serial.println("With a value of: " + String(best_val) + "\n\n");
-
-        // Make the move that was found by the algo
-        Piece *move = b->occupied(m.pos[0], m.pos[1]);
-        b->move(move, m.pos[2], m.pos[3], true);
-
-        do_move_LEDs(m);
-    }
-*/
