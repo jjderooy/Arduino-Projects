@@ -48,19 +48,27 @@ Move get_move(){
             // X
             for(byte j = 0; j < 8; j++){
                 if(digitalRead(btn_indices[j]) == LOW)
-                    m.pos[0 + i] = j; 
+                    m.pos[0 + i] = j;
             }
 
             // Y
-            // TODO change j < 14 to j < 16 once those pins are wired properly
-            for(byte j = 8; j < 14; j++){
+            // TODO change the 15 to a 16 once the LED on the nano is desoldered
+            // from pin 13 as it messes with this
+            for(byte j = 8; j < 15; j++){
                 if(digitalRead(btn_indices[j]) == LOW)
                     m.pos[1 + i] = j - 8;   
             }
             
         }while(m.pos[0 + i] == 255 || m.pos[1 + i] == 255); // Repeat until two buttons pressed
+
+        // Once the first buttons have been pressed, delay to debounce them
         delay(1500);
     } 
+
+    Serial.print("Got move: ");
+    for(byte i = 0; i < 4; i++)
+        Serial.print(m.pos[i]);
+    Serial.println();
 
     return m;
 }
@@ -94,10 +102,7 @@ void do_move_LEDs(Move m){
 
 // Sets the pinMode of every button IO pin to INPUT_PULLUP
 void set_PULLUP(){
-    // i < 14 because 15 and 16 reference A6 and A7 which do
-    // not have internal pullup resistors
-    // Instead, external 20K pullups are connected to them
-    for(byte i = 0; i < 14; i++)
+    for(byte i = 0; i < 16; i++)
       pinMode(btn_indices[i], INPUT_PULLUP);
 }
 
@@ -196,7 +201,6 @@ class Board {
         
         // Spooky formatting so board prints in correct orientation
         byte row = 0;
-        Serial.println();
         for (byte i = 0; i < 64; i++) {
 
             // Every 8th char add a new line
@@ -213,12 +217,16 @@ class Board {
             Serial.print(board_string[64 - (row*8) + (i%8)]);
         }
         Serial.println("\n\n    0 1 2 3 4 5 6 7");
+        Serial.println("\n\n\n");
     }
 
     // Returns true if the move is valid. Does not make the move.
     // Assumes the move is on the chessboard.
     // Always pass layers = 0 as it is a recursive variable
-    bool valid_move(Piece *p, byte new_x, byte new_y, byte layers){
+    // pass test_check = true to test if a move puts the mover in check
+    bool valid_move(Piece *p, byte new_x, byte new_y, byte layers, bool test_check){
+
+        float init = micros();
 
         byte curr_x = p->X;
         byte curr_y = p->Y;
@@ -361,22 +369,30 @@ class Board {
             return false;
         }
 
-        // Check if the move put the mover in check
-        tmp = get_king(p->color);
+        // For performance reasons, testing check is optional
+        // The AI will only test check on moves that score better
+        // than the current best move as this function is extremely
+        // expensive at about 1ms of computer time
+        if(test_check){
+            // Check if the move put the mover in check
+            tmp = get_king(p->color);
 
-        // Move, test check, then unmove
-        Piece *taken = move(p, new_x, new_y);
+            // Move, test check, then unmove
+            Piece *taken = move(p, new_x, new_y);
 
-        if(layers < 1 && check(tmp->X, tmp->Y, layers)){
-            //Serial.println("Move puts mover in check");
+            if(layers < 1 && check(tmp->X, tmp->Y, layers)){
+                //Serial.println("Move puts mover in check");
 
-            // Illegal move. Move the piece(s) back
+                // Illegal move. Move the piece(s) back
+                move(p, curr_x, curr_y);
+                move(taken, new_x, new_y);
+                return false;
+            }
+
             move(p, curr_x, curr_y);
-            move(taken, new_x, new_y);
-            return false;
         }
 
-        move(p, curr_x, curr_y);
+        //Serial.println("Move validation took " + String((float(micros()) - init) / 1000) + "ms");
 
         // If we made it here, the move is valid!
         return true;
@@ -433,6 +449,7 @@ class Board {
     // score < 0 means black is losing
     // score * Color gives relative score
     int score_board(){
+        float init = micros();
         int score = 0;
         Piece *p = &pieces.pieces[0];
 
@@ -443,7 +460,37 @@ class Board {
                 score += int(p->name) * p->color;
             p++;
         }
+        //Serial.println("Board scoring took " + String((float(micros()) - init) / 1000) + "ms");
         return score;
+    }
+
+    // Use valid_move, to check every single move to the kings square
+    // If any move is valid, this returns true
+    // This ends up being recursive so we need to pass the recursive depth
+    bool check(byte king_x, byte king_y, byte layers){
+
+        Piece *p = &pieces.pieces[0];
+
+        for(int i = 0; i < 32; i++){
+            if(valid_move(p, king_x, king_y, layers + 1, true)){ 
+                //Serial.println("Check");
+                return true;
+            }
+            p++;
+        }
+        return false;
+    }
+
+    // Returns a pointer to king of color c
+    Piece *get_king(Color c){
+        // Point k at the king of color c
+        Piece *k = &pieces.pieces[0];
+
+        while(k->name != King || k->color != c)
+            k++;
+        //Serial.println("Found king at: " + String(k->X) + String(k->Y)); 
+
+        return k;
     }
 
     private:
@@ -473,35 +520,6 @@ class Board {
         return true;
     }
 
-    // Use valid_move, to check every single move to the kings square
-    // If any move is valid, this returns true
-    // This ends up being recursive so we need to pass the recursive depth
-    bool check(byte king_x, byte king_y, byte layers){
-
-        Piece *p = &pieces.pieces[0];
-
-        for(int i = 0; i < 32; i++){
-            if(valid_move(p, king_x, king_y, layers + 1)){ 
-                //Serial.println("Check");
-                return true;
-            }
-            p++;
-        }
-        return false;
-    }
-
-    // Returns a pointer to king of color c
-    Piece *get_king(Color c){
-
-        // Point k at the king of color c
-        Piece *k = &pieces.pieces[0];
-
-        while(k->name != King || k->color != c)
-            k++;
-        //Serial.println("Found king at: " + String(k->X) + String(k->Y)); 
-
-        return k;
-    }
 };
 
 class AI {
@@ -516,7 +534,8 @@ class AI {
     // brd  : node (initially the state of the live board)
     // depth: maximum number of turns before returning a best move
     // clr  : color of player (AI) making the move
-    int negamax(Board brd, byte depth, Color clr){
+    // nodes: keeps track of how many moves are made by the AI
+    int negamax(Board brd, byte depth, Color clr, long *nodes){
         /*
             https://en.wikipedia.org/wiki/Negamax
             function negamax(node, depth, color) is
@@ -542,23 +561,33 @@ class AI {
         // Board's pieces array, [0,15] = Black, [16,31] = White
         // clr == Black -> i =  0, till i = 15
         // clr == White -> i = 16, till i = 31
-
-        for(byte i = 16*(clr == White); i < 16 + 16*(clr == White); i++){
+        byte end_index = 16 + 16*(clr == White); 
+        for(byte i = 16*(clr == White); i < end_index; i++){
             
             // Pointer to the start of the Pieces of Color clr in Board brd
             Piece *p = &brd.pieces.pieces[i];
             
             for(byte x = 0; x < 8; x++){
                 for(byte y = 0; y < 8; y++){
-
-                    if(brd.valid_move(p, x, y, 0)){
+                    (*nodes)++;
+                    if(brd.valid_move(p, x, y, 0, false)){
                         byte orig_x = p->X;
                         byte orig_y = p->Y;
 
                         // Pointer to any piece taken when moving p
                         Piece *taken = brd.move(p, x, y);
+                        
+                        // The algo doesn't call for the multiplication by
+                        // clr here but it doesn't make sense without it.
+                        // Possibly an implementation error, but it works
+                        int ngm = clr*negamax(brd, depth - 1, Color(-clr), nodes);
 
-                        value = max(value, negamax(brd, depth - 1, Color(-clr)));
+                        // To save on compute time, only test check if
+                        // the move is better than the current move
+                        // This is because testing check is very expensive
+                        Piece *king = brd.get_king(clr);
+                        if(ngm > value && !brd.check(king->X, king->Y, 0))
+                            value = ngm;
 
                         // Unmove p
                         brd.move(p, orig_x, orig_y);
@@ -569,54 +598,68 @@ class AI {
                 }
             }
         }
-        return value;
+
+        return -value;
     }
 
     // Returns the best Move using the negamax algo given a depth
     Move get_best_move(Board brd, byte depth){
-        
+         
         // This is basically the same as negamax(), but instead of finding
         // best values, we finding the best Move using negamax()
 
         // We evaluate negamax() on each piece of Color c, and
         // pick the piece with the highest return value
 
+        float init = micros();
+
+        // Passed to negamax as pointer. Each move is one node of the
+        // tree that negamax searches
+        long nodes = 0;
+
         int value = INT16_MIN;
         Move best;
 
-        for(byte i = 16*(c == White); i < 16 + 16*(c == White); i++){
+        byte end_index = 16 + 16*(c == White); 
+        for(byte i = 16*(c == White); i < end_index; i++){
 
             Piece *p = &brd.pieces.pieces[i];
             
             for(byte x = 0; x < 8; x++){
                 for(byte y = 0; y < 8; y++){
-                    if(brd.valid_move(p, x, y, 0)){
-                        // TODO make it so a piece can be "unmoved" rather than copying brd
-                        Board cpy = brd; 
+                    nodes++;
+                    if(brd.valid_move(p, x, y, 0, false)){
+
                         byte orig_x = p->X;
                         byte orig_y = p->Y;
 
                         // Pointer to any piece taken when moving p
                         Piece *taken = brd.move(p, x, y);
 
-                        // Call negamax to get the value of this initial move
-                        int ngm = negamax(brd, depth, Color(-c));
+                        // Call negamax to get the max value of this initial
+                        // starting with this initial move
+                        int ngm = negamax(brd, depth, Color(-c), &nodes);
 
                         // Update best if a equal or better move was found
                         // Here we use millis to add some "randomness"
                         // if two moves of the same value are found
-                        if(ngm > value || (ngm == value && millis() % 5 == 0)){
+                        //Serial.println("Initial move: ");
+                        //brd.print_board();
+                        if(ngm > value || (ngm == value && millis() % 7 == 0)){
                             value = ngm;
                             best.pos[0] = orig_x;
                             best.pos[1] = orig_y;
                             best.pos[2] = x;
                             best.pos[3] = y;
 
+                            // Blink the top left LED so player knows AI is "thinking"
+                            blink_LED_pair(btn_indices[15], btn_indices[15], 50, 0);
+
                             // Debugging
                             Serial.print("New best move: ");
                             Serial.println("value: " + String(value) + " ngm: " + String(ngm));
                             for(byte i = 0; i < 4; i++)
-                                Serial.print(best.pos[i]);
+                                Serial.print(String(best.pos[i]) + " ");
                             Serial.println();
                         }
                         // Unmove p
@@ -628,6 +671,9 @@ class AI {
                 }
             }
         }
+
+        Serial.println("Beth made " + String(nodes) + " moves" + " in " +
+                        String((float(micros()) - init) / 1000) + "ms");
 
         return best;
     }
@@ -652,14 +698,14 @@ void loop(){
     do{
         m = get_move();
         p = b.occupied(m.pos[0], m.pos[1]);
-    }while(!b.valid_move(p, m.pos[2], m.pos[3], 0));
+    }while(!b.valid_move(p, m.pos[2], m.pos[3], 0, true));
 
     // Make the player's move
     b.move(p, m.pos[2], m.pos[3]);
     do_move_LEDs(m);
 
     Serial.println("\n\nMaking Beths move...");
-    Move beths_move = beth.get_best_move(b, 1);
+    Move beths_move = beth.get_best_move(b, 2);
     p = b.occupied(beths_move.pos[0], beths_move.pos[1]);
     b.move(p, beths_move.pos[2], beths_move.pos[3]);
     do_move_LEDs(beths_move);
