@@ -217,11 +217,9 @@ class Board {
             Serial.print(board_string[64 - (row*8) + (i%8)]);
         }
         Serial.println("\n\n    0 1 2 3 4 5 6 7");
-        Serial.println("\n\n\n");
     }
 
     // Returns true if the move is valid. Does not make the move.
-    // Assumes the move is on the chessboard.
     // Always pass layers = 0 as it is a recursive variable
     // pass test_check = true to test if a move puts the mover in check
     bool valid_move(Piece *p, byte new_x, byte new_y, byte layers, bool test_check){
@@ -230,6 +228,12 @@ class Board {
 
         byte curr_x = p->X;
         byte curr_y = p->Y;
+
+        // Check if piece is on the board
+        // (100,100) is where pieces go when they are taken
+        // The AI will sometimes try and move them
+        if(curr_x == 100)
+            return false;
 
         // Get our increments for movement. Used by no_collisions()
         // Increments will be normalized to + or -1 depending on direction
@@ -656,11 +660,11 @@ class AI {
                             blink_LED_pair(btn_indices[15], btn_indices[15], 50, 0);
 
                             // Debugging
-                            Serial.print("New best move: ");
-                            Serial.println("value: " + String(value) + " ngm: " + String(ngm));
-                            for(byte i = 0; i < 4; i++)
-                                Serial.print(String(best.pos[i]) + " ");
-                            Serial.println();
+                            //Serial.print("New best move: ");
+                            //Serial.println("value: " + String(value) + " ngm: " + String(ngm));
+                            //for(byte i = 0; i < 4; i++)
+                                //Serial.print(String(best.pos[i]) + " ");
+                            //Serial.println();
                         }
                         // Unmove p
                         brd.move(p, orig_x, orig_y);
@@ -682,7 +686,6 @@ class AI {
 Board b;
 AI beth(White);
 
-
 void setup(){
     Serial.begin(115200);
     b.print_board();
@@ -692,9 +695,18 @@ void loop(){
 
     set_PULLUP();
 
-    // Get a legal move from the player
     Move m;
     Piece *p;
+
+    // Make the AI's move
+    Serial.println("\n\nMaking Beth's move...");
+    m = beth.get_best_move(b, 2);
+    p = b.occupied(m.pos[0], m.pos[1]);
+    b.move(p, m.pos[2], m.pos[3]);
+    b.print_board();
+    do_move_LEDs(m);
+
+    // Get a legal move from the player
     do{
         m = get_move();
         p = b.occupied(m.pos[0], m.pos[1]);
@@ -703,14 +715,8 @@ void loop(){
     // Make the player's move
     b.move(p, m.pos[2], m.pos[3]);
     do_move_LEDs(m);
-
-    Serial.println("\n\nMaking Beths move...");
-    Move beths_move = beth.get_best_move(b, 2);
-    p = b.occupied(beths_move.pos[0], beths_move.pos[1]);
-    b.move(p, beths_move.pos[2], beths_move.pos[3]);
-    do_move_LEDs(beths_move);
-
     b.print_board();
+
 
     //String s; // For incoming serial data
 
@@ -733,16 +739,16 @@ void loop(){
             //Piece *p = b.occupied(int_string[0],int_string[1]);
 
             //// Make the move
-            //if(b.valid_move(p,int_string[2],int_string[3], 0))
-               //b.move(p, int_string[2],int_string[3], true);
+            //if(b.valid_move(p,int_string[2],int_string[3], 0, false))
+               //b.move(p, int_string[2],int_string[3]);
             
             //b.print_board();
 
             //Serial.println("\n\nMaking Beths move...");
 
-            //Move beths_move = beth.get_best_move(b, 2);
+            //Move beths_move = beth.get_best_move(b, 1);
             //p = b.occupied(beths_move.pos[0], beths_move.pos[1]);
-            //b.move(p, beths_move.pos[2], beths_move.pos[3], true);
+            //b.move(p, beths_move.pos[2], beths_move.pos[3]);
 
             //b.print_board();
         //}
