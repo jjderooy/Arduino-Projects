@@ -11,19 +11,18 @@ enum Color : int { Black = 1, White = -1};
 char display_chars_white[10] { 'K', 'P', ' ', 'H', 'B', 'R', ' ', ' ', ' ', 'Q' };
 char display_chars_black[10] { 'k', 'p', ' ', 'h', 'b', 'r', ' ', ' ', ' ', 'q' };
 
-// Map 0-15 to the pin names of arduino
+// Map 0-15 to the pin names of Teensy
 // [0,7] stores x pins, [8,15] stores y pins
-// A6 and A7 are not used because they cannot function as outputs
-byte btn_indices[16] = { 2, 3, 4, 5, 6, 7, 8, 9, A0, A1, A2, A3, A4, A5, 12, 13 };
+byte btn_indices[16] = { 15, 16, 17, 18, 19, 20, 21, 22, 3, 4, 5, 6, 7, 8, 9, 10 };
 
 // struct that stores a move
-// Array is in from { curr_x, curr_y, new_x, new_y }
+// Array is in form { curr_x, curr_y, new_x, new_y }
 typedef struct{
     byte pos[4];
 }Move;
 
 
-// ****** ARDUINO METHODS ****** //
+// ****** TEENSY METHODS ****** //
 
 // Waits until the user presses two buttons to select a piece
 // and two buttons to move the piece
@@ -224,8 +223,6 @@ class Board {
     // pass test_check = true to test if a move puts the mover in check
     bool valid_move(Piece *p, byte new_x, byte new_y, byte layers, bool test_check){
 
-        float init = micros();
-
         byte curr_x = p->X;
         byte curr_y = p->Y;
 
@@ -368,7 +365,7 @@ class Board {
         Piece *tmp = occupied(new_x, new_y);
 
         // Can't take your own color
-        if(tmp->color == p->color){
+        if(tmp != nullptr && tmp->color == p->color){
             //Serial.println("Cannot take own color");
             return false;
         }
@@ -396,17 +393,12 @@ class Board {
             move(p, curr_x, curr_y);
         }
 
-        //Serial.println("Move validation took " + String((float(micros()) - init) / 1000) + "ms");
-
         // If we made it here, the move is valid!
         return true;
     }
 
     // Moves the piece and take opponent's piece if specifed,
     // and returns a pointer to the take piece (so it can be unmoved)
-
-    // take param only exists for when checking check as we don't
-    // actually want to take pieces.
     Piece* move(Piece *p, byte new_x, byte new_y){
         
         // Occasionally when testing check in valid_move()
@@ -453,7 +445,6 @@ class Board {
     // score < 0 means black is losing
     // score * Color gives relative score
     int score_board(){
-        float init = micros();
         int score = 0;
         Piece *p = &pieces.pieces[0];
 
@@ -464,14 +455,14 @@ class Board {
                 score += int(p->name) * p->color;
             p++;
         }
-        //Serial.println("Board scoring took " + String((float(micros()) - init) / 1000) + "ms");
         return score;
     }
 
-    // Use valid_move, to check every single move to the kings square
-    // If any move is valid, this returns true
-    // This ends up being recursive so we need to pass the recursive depth
+    // Returns true if the king at king_x/y is in check
     bool check(byte king_x, byte king_y, byte layers){
+        // Use valid_move, to check every single move to the kings square
+        // If any move is valid, this returns true
+        // This ends up being recursive so we need to pass the recursive depth
 
         Piece *p = &pieces.pieces[0];
 
@@ -615,7 +606,7 @@ class AI {
         // We evaluate negamax() on each piece of Color c, and
         // pick the piece with the highest return value
 
-        float init = micros();
+        float initial = micros();
 
         // Passed to negamax as pointer. Each move is one node of the
         // tree that negamax searches
@@ -647,8 +638,6 @@ class AI {
                         // Update best if a equal or better move was found
                         // Here we use millis to add some "randomness"
                         // if two moves of the same value are found
-                        //Serial.println("Initial move: ");
-                        //brd.print_board();
                         if(ngm > value || (ngm == value && millis() % 7 == 0)){
                             value = ngm;
                             best.pos[0] = orig_x;
@@ -660,11 +649,11 @@ class AI {
                             blink_LED_pair(btn_indices[15], btn_indices[15], 50, 0);
 
                             // Debugging
-                            //Serial.print("New best move: ");
-                            //Serial.println("value: " + String(value) + " ngm: " + String(ngm));
-                            //for(byte i = 0; i < 4; i++)
-                                //Serial.print(String(best.pos[i]) + " ");
-                            //Serial.println();
+                            Serial.print("New best move: ");
+                            Serial.println("value: " + String(value) + " ngm: " + String(ngm));
+                            for(byte i = 0; i < 4; i++)
+                                Serial.print(String(best.pos[i]) + " ");
+                            Serial.println();
                         }
                         // Unmove p
                         brd.move(p, orig_x, orig_y);
@@ -677,7 +666,7 @@ class AI {
         }
 
         Serial.println("Beth made " + String(nodes) + " moves" + " in " +
-                        String((float(micros()) - init) / 1000) + "ms");
+                        String((float(micros()) - initial) / 1000) + "ms");
 
         return best;
     }
@@ -689,6 +678,21 @@ AI beth(White);
 void setup(){
     Serial.begin(115200);
     b.print_board();
+    set_PULLUP();
+
+    Serial.println("Press any button to begin...");
+
+    // Wait for the player to press a button
+    // This is so millis() returns a different value each time
+    // when starting the game. If we don't do this, the AI generally
+    // makes the same opening move. See make_best_move() for more info
+    bool player_ready = false;
+    do{
+        for(byte i = 0; i < 16; i++){
+            if(digitalRead(btn_indices[i]) == LOW)
+                player_ready = true;
+        }
+    }while(!player_ready);
 }
 
 void loop(){
